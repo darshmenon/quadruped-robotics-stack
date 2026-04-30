@@ -73,7 +73,8 @@ for jname, angle in STANDING_POSE.items():
     ET.SubElement(plugin, "target").text = str(angle)
     ET.SubElement(plugin, "use_velocity_commands").text = "false"
 
-ET.indent(tree, space="  ")
+if hasattr(ET, "indent"):
+    ET.indent(tree, space="  ")
 tree.write(OUT_SDF, encoding="unicode", xml_declaration=False)
 
 print(f"Standing SDF written to: {OUT_SDF}")

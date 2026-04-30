@@ -11,6 +11,10 @@ import torch
 
 
 def play(args):
+    EXPORT_POLICY = True
+    RECORD_FRAMES = False
+    MOVE_CAMERA = False
+
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, 100)
@@ -42,8 +46,5 @@ def play(args):
         obs, _, rews, dones, infos = env.step(actions.detach())
 
 if __name__ == '__main__':
-    EXPORT_POLICY = True
-    RECORD_FRAMES = False
-    MOVE_CAMERA = False
     args = get_args()
     play(args)

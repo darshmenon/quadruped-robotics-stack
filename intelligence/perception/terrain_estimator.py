@@ -54,7 +54,7 @@ class TerrainEstimator:
         if not contacts:
             contacts = [0.0, 0.0, 0.0, 0.0]
 
-        slope_deg = math.degrees(math.sqrt(imu_roll**2 + imu_pitch**2))
+        slope_deg = math.degrees(math.atan(math.sqrt(imu_roll**2 + imu_pitch**2)))
 
         self.contact_history.append(contacts)
         if len(self.contact_history) > self.history_len:

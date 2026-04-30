@@ -2,7 +2,7 @@
 
 Quadruped robot dog simulation, walking control, and reinforcement learning policy training workspace.
 
-Supports: Unitree Go1/Go2, Boston Dynamics Spot, MIT Mini Cheetah, ANYmal B/C, Mini Pupper.
+Supports: Unitree Go2, Boston Dynamics Spot, MIT Mini Cheetah, ANYmal B/C, Mini Pupper.
 
 ![Unitree Go2 in RViz2](docs/images/go2_rviz2.png)
 
@@ -35,17 +35,25 @@ quadruped-dog-rl/
 ├── launch/                  # Top-level launch files
 │   ├── view_go2.launch.py   # View Go2 URDF in RViz2
 │   ├── gazebo_go2.launch.py # Spawn Go2 in Gazebo Garden
-│   ├── gazebo_sim.launch.py # Generic Gazebo sim launcher
+│   ├── gazebo_sim.launch.py # Generic Gazebo sim launcher (CHAMP)
 │   ├── rviz_view.launch.py  # Generic RViz2 viewer
-│   └── policy_deploy.launch.py # Deploy trained RL policy
+│   └── policy_deploy.launch.py # Deploy trained RL policy (MuJoCo)
 ├── scripts/                 # Shell scripts for common tasks
 │   ├── train_policy.sh      # Train walking policy
 │   ├── play_policy.sh       # Visualize trained policy
-│   └── launch_sim.sh        # Launch Gazebo sim
+│   ├── launch_sim.sh        # Launch CHAMP Gazebo sim
+│   ├── spawn_go2_gazebo.sh  # Direct Gazebo spawning
+│   └── make_go2_stand.py    # Convert URDF → standing SDF
 ├── training/                # RL policy training (Unitree RL Gym)
 │   ├── legged_gym/          # PPO training scripts and environments
-│   ├── deploy/              # Policy deployment to real robot
+│   ├── deploy/              # Policy deployment (MuJoCo / real robot)
 │   └── setup.py
+├── intelligence/            # Higher-level autonomy stack
+│   ├── gait/                # Gait scheduler
+│   ├── perception/          # Terrain estimator
+│   ├── navigation/          # Waypoint navigator (ROS2)
+│   ├── terrain/             # Adaptive controller
+│   └── llm_commander/       # Natural language → robot commands
 ├── description/             # Robot description docs and joint conventions
 └── interfaces/              # Custom ROS2 msgs, srvs, actions (placeholder)
 ```
@@ -56,7 +64,7 @@ quadruped-dog-rl/
 
 - Ubuntu 22.04
 - ROS2 Humble
-- Gazebo Garden (gz-sim7) — already works with `ros_gz_sim`
+- Gazebo Garden (gz-sim7) — works with `ros_gz_sim`
 - Python 3.8+
 - NVIDIA GPU with 10GB+ VRAM for RL training
 
@@ -86,6 +94,8 @@ Opens RViz2 with the full Go2 mesh and a joint slider GUI to pose the legs.
 
 ## Spawn Go2 in Gazebo Garden
 
+### Terminal 1 — Launch simulation
+
 ```bash
 source /opt/ros/humble/setup.bash
 ros2 launch launch/gazebo_go2.launch.py
@@ -93,10 +103,62 @@ ros2 launch launch/gazebo_go2.launch.py
 
 Starts Gazebo Garden, spawns the Go2, bridges topics to ROS2, and opens RViz2 alongside it.
 
-Send velocity commands:
+### Terminal 2 — Control the robot
+
+**Publish a single velocity command:**
 
 ```bash
-ros2 topic pub /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.5}}" --once
+ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.5, y: 0.0, z: 0.0}, angular: {z: 0.0}}" --once
+```
+
+**Drive continuously (stream at 10 Hz):**
+
+```bash
+ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.3}, angular: {z: 0.2}}" --rate 10
+```
+
+**Useful commands:**
+
+| Action | Command |
+|--------|---------|
+| Move forward | `linear.x = 0.3` |
+| Move backward | `linear.x = -0.3` |
+| Strafe left | `linear.y = 0.2` |
+| Turn left | `angular.z = 0.5` |
+| Turn right | `angular.z = -0.5` |
+| Stop | all zeros |
+
+**Keyboard teleoperation (CHAMP):**
+
+```bash
+# In a second terminal (after sourcing both ROS2 and ros2/install/setup.bash)
+source /opt/ros/humble/setup.bash
+source ros2/install/setup.bash
+ros2 launch champ_teleop teleop.launch.py
+```
+
+Use arrow keys / WASD to drive.
+
+---
+
+## CHAMP Locomotion Simulation
+
+For the full walking gait controller using CHAMP:
+
+```bash
+source /opt/ros/humble/setup.bash
+source ros2/install/setup.bash
+ros2 launch ros2/champ_config/launch/gazebo.launch.py
+```
+
+Then in a second terminal:
+
+```bash
+source /opt/ros/humble/setup.bash
+source ros2/install/setup.bash
+ros2 launch champ_teleop teleop.launch.py
 ```
 
 ---
@@ -115,9 +177,8 @@ python legged_gym/scripts/train.py --task=go2 --headless
 # Visualize trained policy
 python legged_gym/scripts/play.py --task=go2
 
-# Deploy to real robot
-cd deploy
-python deploy.py --task=go2 --ckpt=<path_to_checkpoint>
+# Deploy policy in MuJoCo
+ros2 launch launch/policy_deploy.launch.py checkpoint:=/path/to/policy.pt task:=go2
 ```
 
 Or use the helper scripts:
@@ -127,14 +188,17 @@ Or use the helper scripts:
 ./scripts/play_policy.sh go2
 ```
 
+**Registered tasks:** `go2`, `h1`, `h1_2`, `g1`
+
 ---
 
 ## Available Robots
 
 | Robot | URDF Path | RL Task |
 |-------|-----------|---------|
-| Unitree Go1 | `urdf/go1_config/` | `go1` |
 | Unitree Go2 | `urdf/go2_unitree/urdf/go2.urdf` | `go2` |
+| Unitree H1 | — | `h1`, `h1_2` |
+| Unitree G1 | — | `g1` |
 | Boston Dynamics Spot | `urdf/spot_config/` | — |
 | MIT Mini Cheetah | `urdf/mini_cheetah_config/` | — |
 | ANYmal B | `urdf/anymal_b_config/` | — |
@@ -154,7 +218,7 @@ intelligence/
 ├── perception/
 │   └── terrain_estimator.py    # Classify terrain (flat/slope/stairs/rough) from IMU + foot forces
 ├── navigation/
-│   └── waypoint_navigator.py   # Autonomous waypoint following via pure pursuit
+│   └── waypoint_navigator.py   # Autonomous waypoint following via pure pursuit (ROS2 node)
 ├── terrain/
 │   └── adaptive_controller.py  # Fuse terrain + gait into safe velocity commands
 └── llm_commander/
@@ -182,17 +246,18 @@ Classifies terrain from IMU and foot contact forces, outputs recommended speed l
 from intelligence.perception.terrain_estimator import TerrainEstimator
 estimator = TerrainEstimator()
 result = estimator.estimate(imu_roll=0.1, imu_pitch=0.05, contacts=[120, 115, 118, 122])
-# TerrainEstimate(terrain_type=flat, slope_deg=6.6, recommended_speed_limit=3.0)
+# TerrainEstimate(terrain_type=flat, slope_deg=6.38, recommended_speed_limit=3.0)
 ```
 
 ### Waypoint Navigator (ROS2)
 
-Autonomous point-to-point navigation using pure pursuit:
+Autonomous point-to-point navigation using pure pursuit. Run directly as a Python node:
 
 ```bash
-ros2 run quadruped_dog_rl waypoint_navigator --ros-args \
-    -p waypoints:="[[2.0,0.0],[2.0,2.0],[0.0,2.0],[0.0,0.0]]" \
-    -p linear_speed:=0.5
+source /opt/ros/humble/setup.bash
+python3 intelligence/navigation/waypoint_navigator.py \
+    --ros-args -p waypoints:="[[2.0,0.0],[2.0,2.0],[0.0,2.0],[0.0,0.0]]" \
+               -p linear_speed:=0.5
 ```
 
 ### LLM Commander (Natural Language)

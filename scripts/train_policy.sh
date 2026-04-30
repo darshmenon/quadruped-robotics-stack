@@ -2,9 +2,12 @@
 # Train a quadruped walking policy using Unitree RL Gym (Isaac Gym backend)
 #
 # Usage:
-#   ./scripts/train_policy.sh go2          # train Unitree Go2
-#   ./scripts/train_policy.sh go1          # train Unitree Go1
-#   ./scripts/train_policy.sh --headless   # no GUI (faster)
+#   ./scripts/train_policy.sh go2          # train Unitree Go2 (default)
+#   ./scripts/train_policy.sh h1           # train Unitree H1
+#   ./scripts/train_policy.sh g1           # train Unitree G1
+#   ./scripts/train_policy.sh go2 --headless  # no GUI (faster)
+#
+# Registered tasks: go2, h1, h1_2, g1
 #
 # Requirements:
 #   - Isaac Gym installed (https://developer.nvidia.com/isaac-gym)

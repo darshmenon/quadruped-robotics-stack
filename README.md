@@ -44,8 +44,16 @@ quadruped-dog-rl/
 │   ├── launch_sim.sh        # Launch CHAMP Gazebo sim
 │   ├── spawn_go2_gazebo.sh  # Direct Gazebo spawning
 │   └── make_go2_stand.py    # Convert URDF → standing SDF
-├── training/                # RL policy training (Unitree RL Gym)
-│   ├── legged_gym/          # PPO training scripts and environments
+├── training/                # RL policy training
+│   ├── legged_gym/          # Isaac Gym PPO environments (original)
+│   ├── envs/                # MuJoCo + Gazebo Gymnasium environments
+│   │   ├── go2_mujoco_env.py   # Go2 MuJoCo env (SB3 PPO)
+│   │   ├── go2_gazebo_env.py   # Go2 Gazebo env (ROS2 bridge)
+│   │   └── go2_scene.xml       # MuJoCo MJCF scene
+│   ├── train_mujoco.py      # MuJoCo training script
+│   ├── train_gazebo.py      # Gazebo training script
+│   ├── teleop_mujoco.py     # Keyboard teleop in MuJoCo
+│   ├── launch/              # ROS2 launch files for Gazebo RL
 │   ├── deploy/              # Policy deployment (MuJoCo / real robot)
 │   └── setup.py
 ├── intelligence/            # Higher-level autonomy stack
@@ -165,30 +173,89 @@ ros2 launch champ_teleop teleop.launch.py
 
 ## RL Policy Training
 
-Requires Isaac Gym — download from https://developer.nvidia.com/isaac-gym
+Three backends are supported. Use the unified helper script:
 
 ```bash
-cd training
-pip install -e .
+./scripts/train_policy.sh [backend] [options]
+```
 
-# Train Go2 walking policy
-python legged_gym/scripts/train.py --task=go2 --headless
+### MuJoCo backend (default — no Isaac Gym needed)
 
-# Visualize trained policy
-python legged_gym/scripts/play.py --task=go2
+Trains directly in MuJoCo using Gymnasium + Stable-Baselines3 PPO. Headless, fast, CUDA-accelerated.
 
-# Deploy policy in MuJoCo
+```bash
+# Install deps once
+pip install stable-baselines3 mujoco gymnasium
+
+# Train Go2 (default 2M steps, 8 parallel envs)
+./scripts/train_policy.sh mujoco
+
+# Custom run
+./scripts/train_policy.sh mujoco --timesteps 5000000 --n_envs 16 --cmd 1.0 0.0 0.0
+
+# Resume from checkpoint
+./scripts/train_policy.sh mujoco --resume training/logs/mujoco/checkpoints/go2_mujoco_500000_steps.zip
+```
+
+Output: `training/logs/mujoco/` — TensorBoard logs + checkpoints every 50k steps.
+
+### Gazebo backend (ROS2 bridge)
+
+Trains with real Gazebo physics via ROS2 topics. Slower than MuJoCo but uses identical sim to deployment.
+
+```bash
+source /opt/ros/humble/setup.bash
+source ros2/install/setup.bash
+./scripts/train_policy.sh gazebo
+
+# Use an already-running Gazebo (no auto-launch)
+./scripts/train_policy.sh gazebo --no-launch
+```
+
+### Isaac Gym backend (requires NVIDIA Isaac Gym)
+
+```bash
+# Download from https://developer.nvidia.com/isaac-gym
+pip install -e training/
+./scripts/train_policy.sh isaac go2
+./scripts/train_policy.sh isaac go2 --headless
+```
+
+**Registered Isaac tasks:** `go2`, `h1`, `h1_2`, `g1`
+
+---
+
+## Keyboard Teleop (MuJoCo)
+
+Control the Go2 interactively with a trained policy or random actions:
+
+```bash
+# With trained model
+python3 training/teleop_mujoco.py --model training/logs/mujoco/best_model.zip
+
+# Without model (random actions, for testing the sim)
+python3 training/teleop_mujoco.py
+```
+
+| Key | Action |
+|-----|--------|
+| W / S | Forward / Backward |
+| A / D | Strafe Left / Right |
+| Q / E | Yaw Left / Right |
+| R | Reset episode |
+| ESC | Quit |
+
+---
+
+## Deploy Trained Policy in MuJoCo
+
+```bash
+# For H1/H1_2/G1 with pre-trained weights
+python3 training/deploy/deploy_mujoco/deploy_mujoco.py h1.yaml
+
+# Via ROS2 launch (Go2)
 ros2 launch launch/policy_deploy.launch.py checkpoint:=/path/to/policy.pt task:=go2
 ```
-
-Or use the helper scripts:
-
-```bash
-./scripts/train_policy.sh go2
-./scripts/play_policy.sh go2
-```
-
-**Registered tasks:** `go2`, `h1`, `h1_2`, `g1`
 
 ---
 

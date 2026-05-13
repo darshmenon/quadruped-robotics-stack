@@ -8,17 +8,10 @@ find_package(rclcpp REQUIRED)
 find_package(urdf REQUIRED)
 find_package(champ REQUIRED)
 find_package(champ_msgs REQUIRED)
-find_package(gazebo_ros2_control REQUIRED)
-find_package(gazebo_ros REQUIRED)
 
-set(dependencies
-  rclcpp
-  urdf
-  champ
-  champ_msgs
-  gazebo_ros2_control
-  gazebo_ros
-)
+# Classic Gazebo deps — optional (not available with Gazebo Harmonic)
+find_package(gazebo_ros2_control QUIET)
+find_package(gazebo_ros QUIET)
 
 install(PROGRAMS
   scripts/imu_sensor.py
@@ -27,27 +20,30 @@ install(PROGRAMS
   DESTINATION bin
 )
 
-include_directories(
-  include
-  ${champ_INCLUDE_DIRS}
-  ${champ_INCLUDE_DIRS}/champ/
-  ${champ_INCLUDE_DIRS}/champ/champ/
-  ${GAZEBO_INCLUDE_DIRS}
-)
+# Only build contact_sensor plugin if classic Gazebo is present
+if(gazebo_ros_FOUND AND gazebo_ros2_control_FOUND)
+  set(dependencies
+    rclcpp urdf champ champ_msgs gazebo_ros2_control gazebo_ros
+  )
+  include_directories(
+    include
+    ${champ_INCLUDE_DIRS}
+    ${champ_INCLUDE_DIRS}/champ/
+    ${champ_INCLUDE_DIRS}/champ/champ/
+    ${GAZEBO_INCLUDE_DIRS}
+  )
+  add_executable(contact_sensor src/contact_sensor.cpp)
+  target_link_libraries(contact_sensor ${GAZEBO_LIBRARIES})
+  ament_target_dependencies(contact_sensor ${dependencies})
+  install(TARGETS contact_sensor DESTINATION lib/${PROJECT_NAME})
+  ament_export_dependencies(${dependencies})
+else()
+  message(STATUS "champ_gazebo: classic Gazebo not found — skipping contact_sensor plugin")
+endif()
 
-add_executable(contact_sensor src/contact_sensor.cpp)
-target_link_libraries(contact_sensor ${GAZEBO_LIBRARIES})
-ament_target_dependencies(contact_sensor ${dependencies})
-
-install(TARGETS 
-  contact_sensor
-    DESTINATION lib/${PROJECT_NAME}
-)
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
-install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
-install(DIRECTORY worlds DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY config  DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY worlds  DESTINATION share/${PROJECT_NAME})
 
 ament_export_include_directories(include)
-ament_export_dependencies(${dependencies})
-
 ament_package()

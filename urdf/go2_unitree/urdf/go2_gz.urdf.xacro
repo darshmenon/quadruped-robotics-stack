@@ -1,0 +1,92 @@
+<?xml version="1.0"?>
+<robot name="go2_description" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Include base go2 URDF -->
+  <xacro:include filename="$(find champ_description)/urdf/go2.urdf"/>
+
+  <!-- Gazebo Harmonic gz_ros2_control plugin -->
+  <gazebo>
+    <plugin filename="libgz_ros2_control-system.so"
+            name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(find training)/config/go2_ros2_control.yaml</parameters>
+    </plugin>
+  </gazebo>
+
+  <!-- ros2_control hardware interface -->
+  <ros2_control name="go2_gz" type="system">
+    <hardware>
+      <plugin>gz_ros2_control/GzSystem</plugin>
+    </hardware>
+    <joint name="FL_hip_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.1</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="FL_thigh_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.8</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="FL_calf_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">-1.5</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="FR_hip_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">-0.1</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="FR_thigh_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.8</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="FR_calf_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">-1.5</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="RL_hip_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.1</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="RL_thigh_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">1.0</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="RL_calf_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">-1.5</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="RR_hip_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">-0.1</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="RR_thigh_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">1.0</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="RR_calf_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">-1.5</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+
+  <!-- IMU sensor on base -->
+  <gazebo reference="base">
+    <sensor name="imu_sensor" type="imu">
+      <always_on>true</always_on>
+      <update_rate>200</update_rate>
+      <topic>/imu/data</topic>
+      <gz_frame_id>base</gz_frame_id>
+    </sensor>
+  </gazebo>
+
+</robot>

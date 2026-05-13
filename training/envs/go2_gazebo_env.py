@@ -20,9 +20,8 @@ try:
     from rclpy.node import Node
     from rclpy.qos import QoSProfile, ReliabilityPolicy
     from sensor_msgs.msg import JointState, Imu
-    from std_msgs.msg import Float64MultiArray
+    from std_msgs.msg import Float64
     from std_srvs.srv import Empty
-    from geometry_msgs.msg import Twist
     HAS_ROS = True
 except ImportError:
     HAS_ROS = False
@@ -33,12 +32,12 @@ ACT_SCALE = 0.25
 EPISODE_LEN_S = 20.0
 CTRL_DT = 0.02  # 50 Hz
 
-# go2 joint names (champ URDF mapping)
+# go2 joint names (matches go2 URDF and ros2_control config)
 CHAMP_JOINTS = [
-    "lf_hip_joint", "lf_upper_leg_joint", "lf_lower_leg_joint",
-    "rf_hip_joint", "rf_upper_leg_joint", "rf_lower_leg_joint",
-    "lh_hip_joint", "lh_upper_leg_joint", "lh_lower_leg_joint",
-    "rh_hip_joint", "rh_upper_leg_joint", "rh_lower_leg_joint",
+    "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
+    "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
+    "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
+    "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
 ]
 
 DEFAULT_QPOS = np.array([
@@ -66,11 +65,11 @@ class _Go2RosNode(Node):
         self.sub_imu = self.create_subscription(
             Imu, "/imu/data", self._imu_cb, qos)
 
-        self.pub_cmd = self.create_publisher(
-            Float64MultiArray,
-            "/joint_group_effort_controller/commands",
-            qos_profile=10,
-        )
+        # per-joint position publishers (Float64 → gz JointPositionController)
+        self._joint_pubs = {
+            name: self.create_publisher(Float64, f"/go2/cmd/{name}", 10)
+            for name in CHAMP_JOINTS
+        }
 
         self.reset_client = self.create_client(Empty, "/reset_simulation")
 
@@ -92,13 +91,10 @@ class _Go2RosNode(Node):
             self.ang_vel[:] = [av.x, av.y, av.z]
 
     def send_action(self, target_pos):
-        # PD control: effort = kp*(target - pos) + kd*(0 - vel)
-        with self._lock:
-            err = target_pos - self.joint_pos
-            effort = 20.0 * err - 0.5 * self.joint_vel
-        msg = Float64MultiArray()
-        msg.data = effort.tolist()
-        self.pub_cmd.publish(msg)
+        for i, name in enumerate(CHAMP_JOINTS):
+            msg = Float64()
+            msg.data = float(target_pos[i])
+            self._joint_pubs[name].publish(msg)
 
     def reset_sim(self):
         if self.reset_client.wait_for_service(timeout_sec=2.0):

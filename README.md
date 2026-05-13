@@ -199,18 +199,30 @@ pip install stable-baselines3 mujoco gymnasium
 
 Output: `training/logs/mujoco/` — TensorBoard logs + checkpoints every 50k steps.
 
-### Gazebo backend (ROS2 bridge)
+### Gazebo backend (Gazebo Harmonic + ROS2)
 
-Trains with real Gazebo physics via ROS2 topics. Slower than MuJoCo but uses identical sim to deployment.
+Trains with real Gazebo Harmonic physics via ROS2 topics. Uses `JointPositionController` plugins for PD control, bridged via `ros_gz_bridge`.
 
 ```bash
 source /opt/ros/humble/setup.bash
 source ros2/install/setup.bash
+
+# Build ROS2 workspace first (once)
+cd ros2 && colcon build --symlink-install --cmake-args -DBUILD_TESTING=OFF && cd ..
+
+# Train (auto-launches Gazebo headlessly)
 ./scripts/train_policy.sh gazebo
 
 # Use an already-running Gazebo (no auto-launch)
 ./scripts/train_policy.sh gazebo --no-launch
+
+# Launch Gazebo headlessly standalone
+ros2 launch training/launch/gazebo_rl.launch.py
 ```
+
+Robot URDF variants:
+- `urdf/go2_unitree/urdf/go2.urdf` — base model
+- `urdf/go2_unitree/urdf/go2_gz.urdf` — with Gazebo Harmonic joint controllers (for RL training)
 
 ### Isaac Gym backend (requires NVIDIA Isaac Gym)
 

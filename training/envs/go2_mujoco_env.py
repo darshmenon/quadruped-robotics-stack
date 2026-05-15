@@ -87,8 +87,8 @@ class Go2MujocoEnv(gym.Env):
         quat = d.sensor("orientation").data.astype(np.float32)  # [w, x, y, z]
         w, x, y, z = quat
         gravity = np.array([
-            2 * (-z * x + w * y),
-            -2 * (z * y + w * x),
+            2 * (-z * x - w * y),
+            -2 * (z * y - w * x),
             1 - 2 * (w * w + z * z),
         ], dtype=np.float32)
 

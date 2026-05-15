@@ -1,5 +1,5 @@
 <mujoco model="go2_scene">
-  <compiler autolimits="true" angle="radian" meshdir="/home/asimov/quadruped-dog-rl/urdf/go2_unitree/dae"/>
+  <compiler autolimits="true" angle="radian" meshdir="../../urdf/go2_unitree/dae"/>
 
   <option timestep="0.005" gravity="0 0 -9.81" iterations="50" solver="Newton"/>
 

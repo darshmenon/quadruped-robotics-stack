@@ -362,6 +362,7 @@ Higher-level autonomy stack built on top of the base simulation and RL policy.
 
 ```
 intelligence/
+├── locomotion_manager.py       # ROS2 node — fuses all modules into one running stack
 ├── gait/
 │   └── gait_scheduler.py       # Auto-select gait (walk/trot/canter/bound) by speed
 ├── perception/
@@ -435,6 +436,50 @@ from intelligence.terrain.adaptive_controller import AdaptiveController
 ctrl = AdaptiveController()
 cmd = ctrl.adapt(desired_speed=1.2, imu_pitch=0.12, contacts=[110,115,108,120])
 # AdaptedCommand(linear_x=1.0, gait='trot', terrain='slope', foot_clearance=0.08)
+```
+
+### Locomotion Manager (ROS2 node)
+
+Wires all three modules into one running ROS2 node. Subscribes to IMU + foot forces + raw
+velocity commands; publishes safe adapted commands and JSON status.
+
+```
+/cmd_vel_raw  (Twist)              →┐
+/imu          (Imu)                →┤  LocomotionManager  →  /cmd_vel (Twist)
+/foot_forces  (Float32MultiArray)  →┘                     →  /locomotion_status (String, JSON)
+```
+
+```bash
+source /opt/ros/humble/setup.bash
+python3 intelligence/locomotion_manager.py
+
+# With custom params
+python3 intelligence/locomotion_manager.py --ros-args -p max_speed:=1.2 -p update_rate:=50.0
+```
+
+Monitor the adapted output:
+
+```bash
+ros2 topic echo /cmd_vel
+ros2 topic echo /locomotion_status
+```
+
+The `/locomotion_status` JSON payload includes:
+
+```json
+{"terrain": "slope", "gait": "trot", "speed": 0.8, "angular": 0.0, "slope_deg": 12.5, "foot_clearance": 0.08}
+```
+
+Pipe `WaypointNavigator` → `LocomotionManager` → gait controller for a fully autonomous stack:
+
+```bash
+# Terminal 1 — locomotion manager (terrain-aware speed clamping)
+python3 intelligence/locomotion_manager.py
+
+# Terminal 2 — waypoint navigator (publishes to /cmd_vel_raw)
+python3 intelligence/navigation/waypoint_navigator.py \
+    --ros-args -p waypoints:="[[2.0,0.0],[2.0,2.0],[0.0,0.0]]" \
+               -r /cmd_vel:=/cmd_vel_raw
 ```
 
 ---

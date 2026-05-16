@@ -109,7 +109,7 @@ class Go2MujocoEnv(gym.Env):
         return np.concatenate(
             [ang_vel, gravity, cmd_scaled, dof_pos, dof_vel, self._prev_action, contacts])
 
-    def _compute_reward(self, action: np.ndarray) -> float:
+    def _compute_reward(self, action: np.ndarray):
         d = self.data
         lin_vel  = d.sensor("lin_vel").data.astype(np.float32)
         ang_vel  = d.sensor("ang_vel").data.astype(np.float32)
@@ -117,20 +117,21 @@ class Go2MujocoEnv(gym.Env):
 
         r_lin    = float(np.exp(
             -((lin_vel[0] - self.cmd[0])**2 + (lin_vel[1] - self.cmd[1])**2) / 0.25))
-        r_ang    = float(np.exp(-((ang_vel[2] - self.cmd[2])**2) / 0.25))
-
+        r_ang    = 0.5 * float(np.exp(-((ang_vel[2] - self.cmd[2])**2) / 0.25))
         r_z      = -2.0  * float(lin_vel[2]**2)
         r_height = -1.0  * (float(d.qpos[2]) - TARGET_HEIGHT)**2
         r_orient = -0.5  * float(gravity[0]**2 + gravity[1]**2)
-
         r_torque = -2e-4 * float(np.sum(d.actuator_force**2))
         r_smooth = -5e-3 * float(np.sum((action - self._prev_action)**2))
 
-        contacts   = self._get_contacts()
-        n_contact  = float(np.sum(contacts > 0.3))
-        r_contact  = 0.15 * min(n_contact / 2.0, 1.0)
+        contacts  = self._get_contacts()
+        r_contact = 0.15 * min(float(np.sum(contacts > 0.3)) / 2.0, 1.0)
 
-        return r_lin + 0.5 * r_ang + r_z + r_height + r_orient + r_torque + r_smooth + r_contact
+        components = dict(
+            lin=r_lin, ang=r_ang, vz=r_z, height=r_height,
+            orient=r_orient, torque=r_torque, smooth=r_smooth, contact=r_contact,
+        )
+        return float(sum(components.values())), components
 
     def _sample_cmd(self) -> np.ndarray:
         max_vx = 0.3 + 0.9 * self.curriculum_level
@@ -189,7 +190,7 @@ class Go2MujocoEnv(gym.Env):
         for _ in range(CTRL_DECIMATION):
             mujoco.mj_step(self.model, self.data)
 
-        reward = self._compute_reward(action)
+        reward, components = self._compute_reward(action)
         self._prev_action = action.copy()
         self._step_count += 1
         self._last_episode_steps = self._step_count
@@ -201,7 +202,7 @@ class Go2MujocoEnv(gym.Env):
         if self.render_mode == "human":
             self.render()
 
-        return obs, reward, terminated, truncated, {}
+        return obs, reward, terminated, truncated, {"reward_components": components}
 
     def render(self):
         if self.render_mode == "human":

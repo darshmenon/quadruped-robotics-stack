@@ -8,7 +8,6 @@ import mujoco
 
 SCENE_XML = os.path.join(os.path.dirname(__file__), "go2_scene.xml")
 
-# Default joint angles matching go2_config.py (order: FL/FR/RL/RR hip,thigh,calf)
 DEFAULT_QPOS = np.array([
     0.1,   # FL_hip
     0.8,   # FL_thigh
@@ -24,151 +23,180 @@ DEFAULT_QPOS = np.array([
     -1.5,  # RR_calf
 ], dtype=np.float32)
 
-# Order matches actuator definition in go2_scene.xml:
-# FL_hip, FR_hip, RL_hip, RR_hip, FL_thigh, FR_thigh, RL_thigh, RR_thigh, FL_calf...
+# Actuator order: [FL_hip, FR_hip, RL_hip, RR_hip,
+#                  FL_thigh, FR_thigh, RL_thigh, RR_thigh,
+#                  FL_calf, FR_calf, RL_calf, RR_calf]
 ACT_DEFAULT = np.array([
-    0.1, -0.1,  0.1, -0.1,   # hips
-    0.8,  0.8,  1.0,  1.0,   # thighs
-   -1.5, -1.5, -1.5, -1.5,  # calves
+    0.1, -0.1,  0.1, -0.1,
+    0.8,  0.8,  1.0,  1.0,
+   -1.5, -1.5, -1.5, -1.5,
 ], dtype=np.float32)
 
-OBS_DIM = 45   # 3 ang_vel + 3 gravity + 3 cmd + 12 dof_pos + 12 dof_vel + 12 prev_action
+OBS_DIM = 49   # 3 ang_vel + 3 gravity + 3 cmd + 12 dof_pos + 12 dof_vel + 12 prev_action + 4 contacts
 ACT_DIM = 12
 ACT_SCALE = 0.25
 
-# PD gains (from go2_config)
-KP = 20.0
-KD = 0.5
-
 EPISODE_LEN_S = 20.0
 SIM_DT = 0.005
-CTRL_DECIMATION = 4   # policy runs at 50 Hz, sim at 200 Hz
+CTRL_DECIMATION = 4   # policy at 50 Hz, sim at 200 Hz
+
+TARGET_HEIGHT = 0.27  # nominal base height above ground while standing
 
 
 class Go2MujocoEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"]}
 
-    def __init__(self, cmd=(0.5, 0.0, 0.0), render_mode=None):
+    def __init__(self, cmd=(0.5, 0.0, 0.0), render_mode=None,
+                 randomize_domain=True, use_curriculum=True):
         super().__init__()
         self.model = mujoco.MjModel.from_xml_path(SCENE_XML)
         self.data = mujoco.MjData(self.model)
         self.model.opt.timestep = SIM_DT
 
-        self.cmd = np.array(cmd, dtype=np.float32)  # lin_x, lin_y, ang_yaw
+        self.cmd = np.array(cmd, dtype=np.float32)
         self.render_mode = render_mode
+        self.randomize_domain = randomize_domain
+        self.use_curriculum = use_curriculum
         self._renderer = None
         self._prev_action = np.zeros(ACT_DIM, dtype=np.float32)
         self._step_count = 0
         self._max_steps = int(EPISODE_LEN_S / (SIM_DT * CTRL_DECIMATION))
+        self._last_episode_steps = self._max_steps
+
+        self.curriculum_level = 0.0
+
+        # cache original model params for domain randomization
+        self._base_body_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_BODY, "base")
+        self._floor_geom_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+        self._base_mass = float(self.model.body_mass[self._base_body_id])
+        self._base_floor_friction = self.model.geom_friction[self._floor_geom_id].copy()
+        self._base_gainprm = self.model.actuator_gainprm[:, 0].copy()
+        self._base_biasprm1 = self.model.actuator_biasprm[:, 1].copy()
 
         obs_high = np.full(OBS_DIM, np.inf, dtype=np.float32)
         self.observation_space = spaces.Box(-obs_high, obs_high, dtype=np.float32)
         self.action_space = spaces.Box(
-            low=-1.0, high=1.0, shape=(ACT_DIM,), dtype=np.float32
-        )
-
-        # joint index map: qpos[7:] order from scene XML
-        self._joint_names = [
-            "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
-            "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
-            "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
-            "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
-        ]
-        # actuator order from scene XML: hips, thighs, calves per-leg-group
+            low=-1.0, high=1.0, shape=(ACT_DIM,), dtype=np.float32)
         self._act_default = ACT_DEFAULT.copy()
 
     # ------------------------------------------------------------------ #
-    def _get_obs(self):
-        d = self.data
-        # base angular velocity (body frame)
-        ang_vel = d.sensor("ang_vel").data.astype(np.float32) * 0.25
 
-        # gravity vector in body frame
-        quat = d.sensor("orientation").data.astype(np.float32)  # [w, x, y, z]
-        w, x, y, z = quat
-        gravity = np.array([
+    def _gravity_vec(self) -> np.ndarray:
+        w, x, y, z = self.data.sensor("orientation").data.astype(np.float32)
+        return np.array([
             2 * (-z * x - w * y),
             -2 * (z * y - w * x),
             1 - 2 * (w * w + z * z),
         ], dtype=np.float32)
 
-        # command (scaled)
-        cmd_scaled = self.cmd * np.array([2.0, 2.0, 0.25], dtype=np.float32)
+    def _get_contacts(self) -> np.ndarray:
+        raw = np.array(
+            [self.data.sensor(n).data[0]
+             for n in ("FL_contact", "FR_contact", "RL_contact", "RR_contact")],
+            dtype=np.float32)
+        return np.clip(raw / 50.0, 0.0, 1.0)
 
-        # joint positions & velocities (qpos[7:], qvel[6:] for freejoint robot)
-        dof_pos = (d.qpos[7:].astype(np.float32) - DEFAULT_QPOS) * 1.0
-        dof_vel = d.qvel[6:].astype(np.float32) * 0.05
-
-        return np.concatenate([ang_vel, gravity, cmd_scaled, dof_pos, dof_vel, self._prev_action])
-
-    def _compute_reward(self):
+    def _get_obs(self) -> np.ndarray:
         d = self.data
-        lin_vel = d.sensor("lin_vel").data.astype(np.float32)
-        ang_vel = d.sensor("ang_vel").data.astype(np.float32)
+        ang_vel   = d.sensor("ang_vel").data.astype(np.float32) * 0.25
+        gravity   = self._gravity_vec()
+        cmd_scaled = self.cmd * np.array([2.0, 2.0, 0.25], dtype=np.float32)
+        dof_pos   = (d.qpos[7:].astype(np.float32) - DEFAULT_QPOS)
+        dof_vel   = d.qvel[6:].astype(np.float32) * 0.05
+        contacts  = self._get_contacts()
+        return np.concatenate(
+            [ang_vel, gravity, cmd_scaled, dof_pos, dof_vel, self._prev_action, contacts])
 
-        # tracking linear velocity
-        r_lin = np.exp(-((lin_vel[0] - self.cmd[0])**2 + (lin_vel[1] - self.cmd[1])**2) / 0.25)
-        # tracking angular velocity
-        r_ang = np.exp(-((ang_vel[2] - self.cmd[2])**2) / 0.25)
-        # penalise vertical velocity
-        r_z = -2.0 * lin_vel[2]**2
-        # penalise torques (from ctrl)
-        r_torque = -0.0002 * float(np.sum(self.data.actuator_force**2))
-        # penalise action rate
-        r_act = -0.01 * float(np.sum((self._prev_action)**2))
+    def _compute_reward(self, action: np.ndarray) -> float:
+        d = self.data
+        lin_vel  = d.sensor("lin_vel").data.astype(np.float32)
+        ang_vel  = d.sensor("ang_vel").data.astype(np.float32)
+        gravity  = self._gravity_vec()
 
-        return r_lin + 0.5 * r_ang + r_z + r_torque + r_act
+        r_lin    = float(np.exp(
+            -((lin_vel[0] - self.cmd[0])**2 + (lin_vel[1] - self.cmd[1])**2) / 0.25))
+        r_ang    = float(np.exp(-((ang_vel[2] - self.cmd[2])**2) / 0.25))
 
-    def _is_terminated(self):
-        z = self.data.qpos[2]
-        # base too low (fallen) or too high
+        r_z      = -2.0  * float(lin_vel[2]**2)
+        r_height = -1.0  * (float(d.qpos[2]) - TARGET_HEIGHT)**2
+        r_orient = -0.5  * float(gravity[0]**2 + gravity[1]**2)
+
+        r_torque = -2e-4 * float(np.sum(d.actuator_force**2))
+        r_smooth = -5e-3 * float(np.sum((action - self._prev_action)**2))
+
+        contacts   = self._get_contacts()
+        n_contact  = float(np.sum(contacts > 0.3))
+        r_contact  = 0.15 * min(n_contact / 2.0, 1.0)
+
+        return r_lin + 0.5 * r_ang + r_z + r_height + r_orient + r_torque + r_smooth + r_contact
+
+    def _sample_cmd(self) -> np.ndarray:
+        max_vx = 0.3 + 0.9 * self.curriculum_level
+        vx = float(self.np_random.uniform(-0.1, max_vx))
+        vy = float(self.np_random.uniform(-0.2, 0.2)) * self.curriculum_level
+        wz = float(self.np_random.uniform(-0.5, 0.5)) * self.curriculum_level
+        return np.array([vx, vy, wz], dtype=np.float32)
+
+    def _apply_domain_rand(self) -> None:
+        if not self.randomize_domain:
+            return
+        rng = self.np_random
+        self.model.body_mass[self._base_body_id] = (
+            self._base_mass * float(rng.uniform(0.85, 1.15)))
+        self.model.geom_friction[self._floor_geom_id] = (
+            self._base_floor_friction * float(rng.uniform(0.7, 1.3)))
+        kp_scale = float(rng.uniform(0.85, 1.15))
+        self.model.actuator_gainprm[:, 0] = self._base_gainprm * kp_scale
+        self.model.actuator_biasprm[:, 1] = self._base_biasprm1 * kp_scale
+
+    def _is_terminated(self) -> bool:
+        z = float(self.data.qpos[2])
         if z < 0.15 or z > 0.8:
             return True
-        # excessive tilt
-        quat = self.data.sensor("orientation").data
-        w, x, y, z_q = quat
-        gravity_z = 1 - 2 * (w * w + z_q * z_q)
-        if gravity_z > 0.5:   # more than ~60 deg tilt
-            return True
-        return False
+        w, x, y, z_q = self.data.sensor("orientation").data
+        return bool(1 - 2 * (w * w + z_q * z_q) > 0.5)
 
     # ------------------------------------------------------------------ #
+
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
+
+        if self.use_curriculum:
+            success = self._last_episode_steps >= 0.75 * self._max_steps
+            self.curriculum_level = float(np.clip(
+                self.curriculum_level + (0.005 if success else -0.002), 0.0, 1.0))
+            self.cmd = self._sample_cmd()
+
         mujoco.mj_resetData(self.model, self.data)
+        self._apply_domain_rand()
 
-        # set initial pose
-        self.data.qpos[2] = 0.42
-        self.data.qpos[3:7] = [1, 0, 0, 0]  # w,x,y,z identity quat
-        self.data.qpos[7:] = DEFAULT_QPOS
-
-        # small random perturbation for curriculum robustness
-        if seed is not None or True:
-            noise = (self.np_random.random(12) - 0.5) * 0.1
-            self.data.qpos[7:] += noise
-
-        self.data.ctrl[:] = self._act_default
+        self.data.qpos[2]   = 0.42
+        self.data.qpos[3:7] = [1, 0, 0, 0]
+        self.data.qpos[7:]  = DEFAULT_QPOS + (self.np_random.random(12) - 0.5) * 0.1
+        self.data.ctrl[:]   = self._act_default
         mujoco.mj_forward(self.model, self.data)
 
         self._prev_action = np.zeros(ACT_DIM, dtype=np.float32)
         self._step_count = 0
+        self._last_episode_steps = 0
         return self._get_obs(), {}
 
     def step(self, action):
         action = np.clip(action, -1.0, 1.0).astype(np.float32)
-        target = self._act_default + action * ACT_SCALE
-        self.data.ctrl[:] = target
-
+        self.data.ctrl[:] = self._act_default + action * ACT_SCALE
         for _ in range(CTRL_DECIMATION):
             mujoco.mj_step(self.model, self.data)
 
+        reward = self._compute_reward(action)
         self._prev_action = action.copy()
         self._step_count += 1
+        self._last_episode_steps = self._step_count
 
         obs = self._get_obs()
-        reward = self._compute_reward()
         terminated = self._is_terminated()
-        truncated = self._step_count >= self._max_steps
+        truncated  = self._step_count >= self._max_steps
 
         if self.render_mode == "human":
             self.render()
@@ -194,9 +222,10 @@ class Go2MujocoEnv(gym.Env):
 
 
 if __name__ == "__main__":
-    env = Go2MujocoEnv(render_mode=None)
+    env = Go2MujocoEnv(render_mode=None, randomize_domain=False, use_curriculum=False)
     obs, _ = env.reset(seed=0)
     print("obs shape:", obs.shape)
+    assert obs.shape == (OBS_DIM,), f"expected {OBS_DIM}, got {obs.shape[0]}"
     for _ in range(200):
         obs, r, term, trunc, _ = env.step(env.action_space.sample())
         if term or trunc:

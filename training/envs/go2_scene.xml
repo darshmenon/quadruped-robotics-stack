@@ -33,6 +33,7 @@
             <inertial pos="0.00548 -0.000975 -0.115" mass="0.154" diaginertia="0.000374318 0.000375772 2.5785e-05"/>
             <geom type="capsule" size="0.025 0.1" pos="0 0 -0.1" rgba="0.4 0.4 0.6 1"/>
             <body name="FL_foot" pos="0 0 -0.213">
+              <site name="FL_foot_site" pos="0 0 0" size="0.022"/>
               <geom name="FL_foot" type="sphere" size="0.022" rgba="0.2 0.2 0.2 1" condim="6"/>
               <inertial pos="0 0 0" mass="0.04" diaginertia="1e-5 1e-5 1e-5"/>
             </body>
@@ -54,6 +55,7 @@
             <inertial pos="0.00548 0.000975 -0.115" mass="0.154" diaginertia="0.000374318 0.000375772 2.5785e-05"/>
             <geom type="capsule" size="0.025 0.1" pos="0 0 -0.1" rgba="0.4 0.4 0.6 1"/>
             <body name="FR_foot" pos="0 0 -0.213">
+              <site name="FR_foot_site" pos="0 0 0" size="0.022"/>
               <geom name="FR_foot" type="sphere" size="0.022" rgba="0.2 0.2 0.2 1" condim="6"/>
               <inertial pos="0 0 0" mass="0.04" diaginertia="1e-5 1e-5 1e-5"/>
             </body>
@@ -75,6 +77,7 @@
             <inertial pos="0.00548 -0.000975 -0.115" mass="0.154" diaginertia="0.000374318 0.000375772 2.5785e-05"/>
             <geom type="capsule" size="0.025 0.1" pos="0 0 -0.1" rgba="0.4 0.4 0.6 1"/>
             <body name="RL_foot" pos="0 0 -0.213">
+              <site name="RL_foot_site" pos="0 0 0" size="0.022"/>
               <geom name="RL_foot" type="sphere" size="0.022" rgba="0.2 0.2 0.2 1" condim="6"/>
               <inertial pos="0 0 0" mass="0.04" diaginertia="1e-5 1e-5 1e-5"/>
             </body>
@@ -96,6 +99,7 @@
             <inertial pos="0.00548 0.000975 -0.115" mass="0.154" diaginertia="0.000374318 0.000375772 2.5785e-05"/>
             <geom type="capsule" size="0.025 0.1" pos="0 0 -0.1" rgba="0.4 0.4 0.6 1"/>
             <body name="RR_foot" pos="0 0 -0.213">
+              <site name="RR_foot_site" pos="0 0 0" size="0.022"/>
               <geom name="RR_foot" type="sphere" size="0.022" rgba="0.2 0.2 0.2 1" condim="6"/>
               <inertial pos="0 0 0" mass="0.04" diaginertia="1e-5 1e-5 1e-5"/>
             </body>
@@ -152,6 +156,10 @@
     <jointvel   name="RR_hip_vel"   joint="RR_hip_joint"/>
     <jointvel   name="RR_thigh_vel" joint="RR_thigh_joint"/>
     <jointvel   name="RR_calf_vel"  joint="RR_calf_joint"/>
+    <touch name="FL_contact" site="FL_foot_site"/>
+    <touch name="FR_contact" site="FR_foot_site"/>
+    <touch name="RL_contact" site="RL_foot_site"/>
+    <touch name="RR_contact" site="RR_foot_site"/>
   </sensor>
 
 </mujoco>

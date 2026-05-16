@@ -55,7 +55,8 @@ def main():
         vec_env_cls=SubprocVecEnv,
     )
 
-    eval_env = Monitor(Go2MujocoEnv(cmd=cmd, render_mode=None))
+    eval_env = Monitor(Go2MujocoEnv(cmd=cmd, render_mode=None,
+                                    randomize_domain=False, use_curriculum=False))
 
     callbacks = [
         CheckpointCallback(save_freq=50_000, save_path=CKPT_DIR, name_prefix="go2_mujoco"),

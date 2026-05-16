@@ -63,7 +63,7 @@ quadruped-dog-rl/
 │   ├── terrain/             # Adaptive controller
 │   └── llm_commander/       # Natural language → robot commands
 ├── description/             # Robot description docs and joint conventions
-└── interfaces/              # Custom ROS2 msgs, srvs, actions (placeholder)
+└── interfaces/              # Custom ROS2 msgs, srvs, actions
 ```
 
 ---
@@ -183,11 +183,17 @@ Three backends are supported. Use the unified helper script:
 
 Trains directly in MuJoCo using Gymnasium + Stable-Baselines3 PPO. Headless, fast, CUDA-accelerated.
 
+Features enabled by default:
+- **Domain randomization** — body mass ±15%, floor friction ±30%, motor kp ±15% each episode
+- **Curriculum learning** — command velocity starts slow (0.3 m/s max) and scales up to 1.2 m/s as the policy improves
+- **Foot contact observations** — 4 touch sensor readings appended to the 49-dim observation
+- **Richer reward** — velocity tracking + base height stability + orientation + foot contact + action smoothness
+
 ```bash
 # Install deps once
-pip install stable-baselines3 mujoco gymnasium
+pip install -r requirements.txt
 
-# Train Go2 (default 2M steps, 8 parallel envs)
+# Train Go2 (default 2M steps, 8 parallel envs, curriculum + domain rand on)
 ./scripts/train_policy.sh mujoco
 
 # Custom run
@@ -237,7 +243,40 @@ pip install -e training/
 
 ---
 
-## Keyboard Teleop (MuJoCo)
+## Headless IK Controller (no RL)
+
+Run the Go2 immediately without a trained policy using a pure IK trot/walk/bound controller.
+Gait switches automatically with speed via the `GaitScheduler`:
+
+| Speed (m/s) | Gait   |
+|-------------|--------|
+| 0 – 0.05    | Stand  |
+| 0.05 – 0.4  | Walk   |
+| 0.4 – 1.5   | Trot   |
+| 1.5 – 2.5   | Canter |
+| 2.5 – 4.0   | Bound  |
+| 4.0+        | Pronk  |
+
+```bash
+pip install -r requirements.txt
+
+# Run interactive viewer
+python3 training/headless_control.py
+
+# Record a video
+python3 training/headless_control.py --record out.mp4
+```
+
+| Key | Action |
+|-----|--------|
+| W / S | Forward / Backward |
+| A / D | Strafe Left / Right |
+| Q / E | Yaw Left / Right |
+| Space | Stop |
+| R | Reset simulation |
+| ESC | Quit |
+
+## Keyboard Teleop (MuJoCo, with RL policy)
 
 Control the Go2 interactively with a trained policy or random actions:
 

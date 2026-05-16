@@ -1,0 +1,26 @@
+# Core RL
+torch>=2.0.0
+numpy>=1.24.0
+gymnasium>=0.29.0
+stable-baselines3>=2.0.0
+
+# Simulation
+mujoco>=3.0.0
+
+# LLM commander
+anthropic>=0.25.0
+
+# Utilities
+scipy>=1.11.0
+pyyaml>=6.0
+opencv-python>=4.8.0
+
+# ROS2 (install via apt, not pip)
+# ros-humble-desktop or ros-jazzy-desktop
+# python3-colcon-common-extensions
+
+# Isaac Gym (install separately from NVIDIA)
+# https://developer.nvidia.com/isaac-gym
+
+# Unitree SDK (install separately)
+# unitree_sdk2py

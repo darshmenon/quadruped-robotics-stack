@@ -14,6 +14,7 @@ anthropic>=0.25.0
 scipy>=1.11.0
 pyyaml>=6.0
 opencv-python>=4.8.0
+tensorboard>=2.13.0
 
 # ROS2 (install via apt, not pip)
 # ros-humble-desktop or ros-jazzy-desktop

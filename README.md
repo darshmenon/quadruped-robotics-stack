@@ -185,25 +185,33 @@ Trains directly in MuJoCo using Gymnasium + Stable-Baselines3 PPO. Headless, fas
 
 Features enabled by default:
 - **Domain randomization** — body mass ±15%, floor friction ±30%, motor kp ±15% each episode
-- **Curriculum learning** — command velocity starts slow (0.3 m/s max) and scales up to 1.2 m/s as the policy improves
-- **Foot contact observations** — 4 touch sensor readings appended to the 49-dim observation
-- **Richer reward** — velocity tracking + base height stability + orientation + foot contact + action smoothness
+- **Curriculum learning** — command velocity starts slow (0.3 m/s max) and scales to 1.2 m/s as the policy improves
+- **Foot contact observations** — 4 touch sensor readings in the 49-dim observation vector
+- **Richer reward** — velocity tracking + base height + orientation + foot contact + action smoothness (8 terms)
+- **VecNormalize** — running obs + reward normalisation across all parallel envs
+- **TensorBoard** — each reward term logged separately under `reward/lin`, `reward/contact`, etc.
+- **Tuned PPO** — lr=3e-4, n_steps=2048, n_epochs=10
 
 ```bash
 # Install deps once
 pip install -r requirements.txt
 
-# Train Go2 (default 2M steps, 8 parallel envs, curriculum + domain rand on)
+# Train Go2 (default 2M steps, 8 parallel envs)
 ./scripts/train_policy.sh mujoco
 
 # Custom run
 ./scripts/train_policy.sh mujoco --timesteps 5000000 --n_envs 16 --cmd 1.0 0.0 0.0
 
-# Resume from checkpoint
+# Resume from checkpoint (VecNormalize stats auto-loaded from checkpoints/ dir)
 ./scripts/train_policy.sh mujoco --resume training/logs/mujoco/checkpoints/go2_mujoco_500000_steps.zip
 ```
 
-Output: `training/logs/mujoco/` — TensorBoard logs + checkpoints every 50k steps.
+Output: `training/logs/mujoco/` — checkpoints + `vecnorm_<steps>_steps.pkl` every 50k steps.
+
+```bash
+# View reward curves in TensorBoard
+tensorboard --logdir training/logs/mujoco
+```
 
 ### Gazebo backend (Gazebo Harmonic + ROS2)
 
@@ -274,6 +282,29 @@ python3 training/headless_control.py --record out.mp4
 | Q / E | Yaw Left / Right |
 | Space | Stop |
 | R | Reset simulation |
+| ESC | Quit |
+
+## Play Trained Policy (OpenCV viewer)
+
+Runs a trained checkpoint in the same headless OpenCV viewer as the IK controller.
+VecNormalize stats are auto-detected from the checkpoint directory.
+
+```bash
+# Auto-detect vecnorm stats from the same directory as the model
+python3 training/play_policy.py --model training/logs/mujoco/best_model.zip
+
+# Explicit vecnorm path or custom command velocity
+python3 training/play_policy.py --model best_model.zip --vecnorm vecnorm_final.pkl --cmd 0.8 0 0
+
+# Record a video
+python3 training/play_policy.py --model best_model.zip --record policy_demo.mp4
+```
+
+HUD shows: commanded velocity, actual velocity, per-step reward, action magnitude, episode count.
+
+| Key | Action |
+|-----|--------|
+| R | Reset episode |
 | ESC | Quit |
 
 ## Keyboard Teleop (MuJoCo, with RL policy)

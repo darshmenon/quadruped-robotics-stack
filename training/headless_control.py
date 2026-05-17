@@ -127,9 +127,13 @@ def _foot_target(phi: float, stride: float,
 # Gait controller
 # --------------------------------------------------------------------------- #
 
-def gait_ctrl(t: float, cmd: np.ndarray, gait_params) -> np.ndarray:
+def gait_ctrl(leg_phases: np.ndarray, cmd: np.ndarray, gait_params) -> np.ndarray:
     """
     Compute 12 joint targets from IK for the given gait.
+
+    leg_phases: per-leg accumulated phase [FL, FR, RL, RR] in [0, 2π),
+                maintained by the caller and advanced at gait_params.frequency.
+                Keeping phase in the caller ensures continuity across gait switches.
     cmd: [vx, vy, wz] (filtered)
     """
     vx, vy, wz = float(cmd[0]), float(cmd[1]), float(cmd[2])
@@ -142,24 +146,21 @@ def gait_ctrl(t: float, cmd: np.ndarray, gait_params) -> np.ndarray:
     stride     = STRIDE_LEN * _STRIDE_SCALE[gait_enum] * np.clip(vx / VX_MAX, -1.0, 1.0)
     step_h     = _STEP_HEIGHT[gait_enum]
     duty       = gait_params.duty_factor
-    freq       = gait_params.frequency
-    phase_rads = [p * 2.0 * np.pi for p in gait_params.phase_offsets]
 
     hips   = np.empty(4)
     thighs = np.empty(4)
     calves = np.empty(4)
 
     for i in range(4):
-        phi = (2.0 * np.pi * freq * t + phase_rads[i]) % (2.0 * np.pi)
+        phi = leg_phases[i]
 
-        # yaw: inner/outer legs get shorter/longer stride
-        yaw_sign  = 1.0 if (i % 2 == 1) else -1.0  # +1 FR/RR, -1 FL/RL
+        yaw_sign   = 1.0 if (i % 2 == 1) else -1.0
         leg_stride = stride + yaw_sign * 0.03 * wz
 
         px, pz = _foot_target(phi, leg_stride, duty, step_h)
         thigh_i, calf_i = _leg_ik(px, pz)
 
-        lat_sign = 1.0 if (i % 2 == 0) else -1.0   # +1 FL/RL, -1 FR/RR
+        lat_sign  = 1.0 if (i % 2 == 0) else -1.0
         hips[i]   = HIP_DEFAULT[i] + lat_sign * 0.12 * vy / VY_MAX
         thighs[i] = thigh_i
         calves[i] = calf_i
@@ -179,19 +180,19 @@ def _butter_lp(cutoff, fs, order=2):
 class CommandFilter:
     def __init__(self, ctrl_hz: float = 50.0, cutoff: float = 1.5):
         b, a = _butter_lp(cutoff, ctrl_hz)
-        self._b, self._a = b, a
-        n = max(len(b), len(a))
-        self._x = np.zeros((3, n))
-        self._y = np.zeros((3, n))
+        self._b = b   # len 3 for 2nd-order
+        self._a = a   # len 3: [1, a1, a2]
+        self._x = np.zeros((3, len(b)))   # input history per channel
+        self._y = np.zeros((3, len(a)))   # output history per channel
 
     def update(self, raw: np.ndarray) -> np.ndarray:
         out = np.empty(3)
         for i in range(3):
             self._x[i] = np.roll(self._x[i], 1)
             self._x[i, 0] = raw[i]
-            y = (self._b[0] * self._x[i, 0]
-                 + self._b[1] * self._x[i, 1]
-                 - self._a[1] * self._y[i, 0])
+            # full difference equation: y = sum(b*x) - sum(a[1:]*y_prev)
+            y = (np.dot(self._b, self._x[i])
+                 - np.dot(self._a[1:], self._y[i, :-1]))
             self._y[i] = np.roll(self._y[i], 1)
             self._y[i, 0] = y
             out[i] = y
@@ -204,9 +205,13 @@ class CommandFilter:
 
 def _make_key_reader():
     import termios, tty, select
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    tty.setcbreak(fd)
+    try:
+        fd  = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        tty.setcbreak(fd)
+    except (termios.error, Exception):
+        # stdin is not a TTY (e.g. subprocess / IDE) — return no-op reader
+        return lambda: None, lambda: None
 
     def read():
         if select.select([sys.stdin], [], [], 0)[0]:
@@ -260,9 +265,16 @@ def _draw_hud(frame, cmd, filtered_cmd, body_z, step, fps, gait_name):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--record", type=str, default=None,
+    parser.add_argument("--record",     type=str,   default=None,
                         help="Output video path, e.g. out.mp4")
-    parser.add_argument("--fps-render", type=int, default=30)
+    parser.add_argument("--fps-render", type=int,   default=30)
+    parser.add_argument("--steps",      type=int,   default=0,
+                        help="Auto-quit after N sim steps (0 = run until ESC)")
+    parser.add_argument("--cmd",        type=float, nargs=3, default=[0.5, 0.0, 0.0],
+                        metavar=("VX", "VY", "WZ"),
+                        help="Initial velocity command (default: 0.5 0 0)")
+    parser.add_argument("--no-display", action="store_true",
+                        help="Skip cv2.imshow (record-only mode)")
     args = parser.parse_args()
 
     model = mujoco.MjModel.from_xml_path(SCENE_XML)
@@ -278,9 +290,10 @@ def main():
         writer = cv2.VideoWriter(args.record, fourcc, args.fps_render, (640, 480))
         print(f"Recording → {args.record}")
 
-    cv2.namedWindow("Go2 Headless Control", cv2.WINDOW_AUTOSIZE)
+    if not args.no_display:
+        cv2.namedWindow("Go2 Headless Control", cv2.WINDOW_AUTOSIZE)
 
-    raw_cmd  = np.zeros(3)
+    raw_cmd  = np.array(args.cmd, dtype=np.float64)
     cmd_filt = CommandFilter(ctrl_hz=50, cutoff=1.5)
     filtered = np.zeros(3)
 
@@ -335,19 +348,25 @@ def main():
     step = 0; sim_t = 0.0
     fps_display = 0.0; frame_count = 0; t0_fps = time.perf_counter()
 
+    # per-leg accumulated phases [FL, FR, RL, RR] in [0, 2π) — continuous across gait switches
+    _init_p    = scheduler.get_gait_params(0.0)
+    leg_phases = np.array(_init_p.phase_offsets) * 2.0 * np.pi
+
     while not do_quit.is_set():
         if do_reset.is_set():
             _reset()
             sim_t = 0.0; step = 0
-            cmd_filt = CommandFilter(ctrl_hz=50, cutoff=1.5)
+            cmd_filt   = CommandFilter(ctrl_hz=50, cutoff=1.5)
             scheduler.__init__()
+            leg_phases = np.array(GAITS[Gait.STAND].phase_offsets) * 2.0 * np.pi
             do_reset.clear()
 
         filtered[:] = cmd_filt.update(raw_cmd)
 
         speed      = float(np.hypot(filtered[0], filtered[2] * 0.3))
         gait_p     = scheduler.get_gait_params(speed)
-        ctrl       = gait_ctrl(sim_t, filtered, gait_p)
+        leg_phases = (leg_phases + 2.0 * np.pi * gait_p.frequency * SIM_DT * CTRL_DECIMATION) % (2.0 * np.pi)
+        ctrl       = gait_ctrl(leg_phases, filtered, gait_p)
 
         data.ctrl[:] = np.clip(ctrl,
                                model.actuator_ctrlrange[:, 0],
@@ -374,15 +393,20 @@ def main():
             if writer is not None:
                 writer.write(frame)
 
-            cv2.imshow("Go2 Headless Control", frame)
-            if cv2.waitKey(1) & 0xFF == 27:
-                do_quit.set()
+            if not args.no_display:
+                cv2.imshow("Go2 Headless Control", frame)
+                if cv2.waitKey(1) & 0xFF == 27:
+                    do_quit.set()
+
+        if args.steps and step >= args.steps:
+            do_quit.set()
 
         if data.qpos[2] < 0.12:
             print("  [fallen — auto-reset]")
-            _reset(); sim_t = 0.0; step = 0
-            cmd_filt = CommandFilter(ctrl_hz=50, cutoff=1.5)
+            _reset(); sim_t = 0.0
+            cmd_filt   = CommandFilter(ctrl_hz=50, cutoff=1.5)
             scheduler.__init__()
+            leg_phases = np.array(GAITS[Gait.STAND].phase_offsets) * 2.0 * np.pi
 
     do_quit.set()
     cv2.destroyAllWindows()

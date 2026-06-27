@@ -25,6 +25,7 @@ WORLD = REPO / "training" / "envs" / "go2_gz_world.sdf"
 STAND_SDF = Path(tempfile.gettempdir()) / "go2_stand.sdf"
 STAND_SDF_SCRIPT = REPO / "scripts" / "make_go2_stand.py"
 STAND_NODE = REPO / "scripts" / "stand_go2_gz.py"
+ODOM_NODE = REPO / "scripts" / "gz_pose_to_odom.py"
 
 
 def generate_launch_description():
@@ -92,6 +93,7 @@ def _launch_setup(context, *args, **kwargs):
     bridge_args = [
         "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock",
         "/imu/data@sensor_msgs/msg/Imu[gz.msgs.IMU",
+        "/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan",
         "/world/go2_rl/model/go2/joint_state@sensor_msgs/msg/JointState[gz.msgs.Model",
     ]
     # per-joint position command bridges: ROS2 Float64 → Gazebo Double
@@ -112,10 +114,24 @@ def _launch_setup(context, *args, **kwargs):
         output="screen",
     )
 
+    odom = ExecuteProcess(
+        cmd=[
+            "python3",
+            str(ODOM_NODE),
+            "--world", "go2_rl",
+            "--model", "go2",
+            "--odom-frame", "odom",
+            "--base-frame", "base",
+            "--ros-args", "-p", "use_sim_time:=true",
+        ],
+        output="screen",
+    )
+
     return [
         gz_sim,
         robot_state_pub,
         TimerAction(period=2.0, actions=[spawn]),
         bridge,
+        TimerAction(period=4.0, actions=[odom]),
         TimerAction(period=4.0, actions=[stand]),
     ]

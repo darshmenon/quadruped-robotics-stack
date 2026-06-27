@@ -93,6 +93,34 @@ if imu_link is not None and imu_link.find("sensor[@name='imu_sensor']") is None:
     ET.SubElement(sensor, "topic").text = "/imu/data"
     ET.SubElement(sensor, "imu")
 
+has_scan_sensor = any(
+    sensor.findtext("topic", default="").strip().lstrip("/") == "scan"
+    for sensor in model.findall(".//sensor")
+)
+base_link = model.find("link[@name='base']")
+if base_link is not None and not has_scan_sensor:
+    sensor = ET.SubElement(base_link, "sensor")
+    sensor.set("name", "lidar_sensor")
+    sensor.set("type", "gpu_lidar")
+    ET.SubElement(sensor, "pose").text = "0.25 0 0.12 0 0 0"
+    ET.SubElement(sensor, "always_on").text = "1"
+    ET.SubElement(sensor, "update_rate").text = "10"
+    ET.SubElement(sensor, "topic").text = "/scan"
+    ET.SubElement(sensor, "gz_frame_id").text = "base"
+
+    ray = ET.SubElement(sensor, "ray")
+    scan = ET.SubElement(ray, "scan")
+    horizontal = ET.SubElement(scan, "horizontal")
+    ET.SubElement(horizontal, "samples").text = "720"
+    ET.SubElement(horizontal, "resolution").text = "1"
+    ET.SubElement(horizontal, "min_angle").text = "-3.14159"
+    ET.SubElement(horizontal, "max_angle").text = "3.14159"
+
+    range_tag = ET.SubElement(ray, "range")
+    ET.SubElement(range_tag, "min").text = "0.08"
+    ET.SubElement(range_tag, "max").text = "8.0"
+    ET.SubElement(range_tag, "resolution").text = "0.01"
+
 if hasattr(ET, "indent"):
     ET.indent(tree, space="  ")
 tree.write(args.out, encoding="unicode", xml_declaration=False)

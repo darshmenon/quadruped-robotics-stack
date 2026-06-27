@@ -105,7 +105,7 @@ def main():
     print(f"Training Go2 (MuJoCo) | cmd={cmd} | envs={args.n_envs} | steps={args.timesteps}")
 
     # ---- training envs with obs + reward normalisation ----
-    vec_env = SubprocVecEnv([make_env(cmd, i) for i in range(args.n_envs)])
+    vec_env = DummyVecEnv([make_env(cmd, i) for i in range(args.n_envs)])
     vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=True,
                            clip_obs=10.0, clip_reward=10.0)
 

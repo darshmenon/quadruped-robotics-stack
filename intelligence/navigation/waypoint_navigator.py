@@ -21,13 +21,13 @@ class WaypointNavigator(Node):
     def __init__(self):
         super().__init__('waypoint_navigator')
 
-        self.declare_parameter('waypoints', '[[2.0,0.0],[0.0,0.0]]')
+        self.declare_parameter('waypoints', [2.0, 0.0, 0.0, 0.0])
         self.declare_parameter('linear_speed', 0.5)
         self.declare_parameter('goal_tolerance', 0.15)
         self.declare_parameter('angular_gain', 2.0)
 
-        raw = self.get_parameter('waypoints').get_parameter_value().string_value
-        self.waypoints = json.loads(raw)
+        raw = self.get_parameter('waypoints').value
+        self.waypoints = [[raw[i], raw[i+1]] for i in range(0, len(raw), 2)]
         self.linear_speed = self.get_parameter('linear_speed').get_parameter_value().double_value
         self.goal_tol = self.get_parameter('goal_tolerance').get_parameter_value().double_value
         self.ang_gain = self.get_parameter('angular_gain').get_parameter_value().double_value

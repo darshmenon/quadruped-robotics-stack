@@ -1,5 +1,10 @@
 # quadruped-dog-rl
 
+![ROS2](https://img.shields.io/badge/ROS2-Humble-blue.svg)
+![Gazebo](https://img.shields.io/badge/Gazebo-Harmonic-orange.svg)
+![MuJoCo](https://img.shields.io/badge/MuJoCo-3.1-green.svg)
+![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)
+
 Quadruped robot dog simulation, walking control, and reinforcement learning policy training workspace.
 
 Supports: Unitree Go2, Boston Dynamics Spot, MIT Mini Cheetah, ANYmal B/C, Mini Pupper.
@@ -7,6 +12,16 @@ Supports: Unitree Go2, Boston Dynamics Spot, MIT Mini Cheetah, ANYmal B/C, Mini 
 ![Unitree Go2 in RViz2](docs/images/go2_rviz2.png)
 
 ![Unitree Go2 in Gazebo Garden](docs/images/go2_gazebo.png)
+
+---
+
+## Table of Contents
+- [Repository Structure](#repository-structure)
+- [System Requirements](#system-requirements)
+- [Build ROS2 Packages](#build-ros2-packages)
+- [Quick Start](#quick-start)
+- [RL Policy Training](#rl-policy-training)
+- [Intelligence Modules](#intelligence-modules)
 
 ---
 
@@ -37,13 +52,15 @@ quadruped-dog-rl/
 │   ├── gazebo_go2.launch.py # Spawn Go2 in Gazebo Garden
 │   ├── gazebo_sim.launch.py # Generic Gazebo sim launcher (CHAMP)
 │   ├── rviz_view.launch.py  # Generic RViz2 viewer
-│   └── policy_deploy.launch.py # Deploy trained RL policy (MuJoCo)
+│   ├── policy_deploy.launch.py # Deploy trained RL policy (MuJoCo)
+│   └── slam_go2.launch.py   # SLAM mapping with 2D LiDAR
 ├── scripts/                 # Shell scripts for common tasks
 │   ├── train_policy.sh      # Train walking policy
 │   ├── play_policy.sh       # Visualize trained policy
 │   ├── launch_sim.sh        # Launch CHAMP Gazebo sim
 │   ├── spawn_go2_gazebo.sh  # Direct Gazebo spawning
-│   └── make_go2_stand.py    # Convert URDF → standing SDF
+│   ├── make_go2_stand.py    # Convert URDF → standing SDF
+│   └── gz_pose_to_odom.py   # Ground truth odometry for mapping
 ├── training/                # RL policy training
 │   ├── legged_gym/          # Isaac Gym PPO environments (original)
 │   ├── envs/                # MuJoCo + Gazebo Gymnasium environments
@@ -89,27 +106,25 @@ source install/setup.bash
 
 ---
 
-## View Go2 in RViz2
+## Quick Start
 
+### 1. View Go2 in RViz2
+
+Launch a standalone RViz2 session with the full Go2 mesh and a joint slider GUI:
 ```bash
 source /opt/ros/humble/setup.bash
 ros2 launch launch/view_go2.launch.py
 ```
 
-Opens RViz2 with the full Go2 mesh and a joint slider GUI to pose the legs.
+### 2. Spawn Go2 in Gazebo Garden
 
----
-
-## Spawn Go2 in Gazebo Garden
-
-### Terminal 1 — Launch simulation
-
+**Terminal 1 — Launch simulation**
 ```bash
 source /opt/ros/humble/setup.bash
 ros2 launch launch/gazebo_go2.launch.py
 ```
 
-Starts Gazebo Garden, spawns the Go2, bridges topics to ROS2, and opens RViz2 alongside it.
+> **Note:** This starts Gazebo Garden, spawns the Go2, bridges topics to ROS2, and opens RViz2 alongside it.
 
 ### Terminal 2 — Control the robot
 
@@ -257,6 +272,28 @@ source /opt/ros/humble/setup.bash
 source ros2/install/setup.bash
 ros2 launch launch/nav2_go2.launch.py
 ```
+
+### SLAM and Mapping
+
+To generate a 2D occupancy grid map of the environment using the newly attached LiDAR, you will need to run the SLAM stack and the ground-truth odometry bridge.
+
+**1. Run Ground Truth Odometry**
+Gazebo provides absolute pose data, but SLAM requires a valid `odom` topic. Run the pose-to-odometry script to bridge this gap:
+```bash
+source /opt/ros/humble/setup.bash
+source ros2/install/setup.bash
+python3 scripts/gz_pose_to_odom.py
+```
+* **Topics:** Subscribes to `/model/go2/pose` (Gazebo) and publishes to `/odom` (ROS 2), while broadcasting the `odom -> base_link` TF transform.
+
+**2. Launch SLAM Toolbox**
+Once odometry is running, start the SLAM toolbox to begin mapping:
+```bash
+source /opt/ros/humble/setup.bash
+source ros2/install/setup.bash
+ros2 launch launch/slam_go2.launch.py
+```
+* **Topics:** Subscribes to `/scan` (from the 360-degree Gazebo LiDAR) and `/tf`. Publishes the 2D occupancy grid to `/map`.
 
 The Gazebo stand/gait node subscribes to `/cmd_vel` and converts velocity
 commands into the same Gazebo joint target topics used by teleop. Full autonomous
@@ -435,7 +472,7 @@ Autonomous point-to-point navigation using pure pursuit. Run directly as a Pytho
 ```bash
 source /opt/ros/humble/setup.bash
 python3 intelligence/navigation/waypoint_navigator.py \
-    --ros-args -p waypoints:="[[2.0,0.0],[2.0,2.0],[0.0,2.0],[0.0,0.0]]" \
+    --ros-args -p waypoints:="[2.0,0.0, 2.0,2.0, 0.0,2.0, 0.0,0.0]" \
                -p linear_speed:=0.5
 ```
 
@@ -507,7 +544,7 @@ python3 intelligence/locomotion_manager.py
 
 # Terminal 2 — waypoint navigator (publishes to /cmd_vel_raw)
 python3 intelligence/navigation/waypoint_navigator.py \
-    --ros-args -p waypoints:="[[2.0,0.0],[2.0,2.0],[0.0,0.0]]" \
+    --ros-args -p waypoints:="[2.0,0.0, 2.0,2.0, 0.0,0.0]" \
                -r /cmd_vel:=/cmd_vel_raw
 ```
 

@@ -85,6 +85,7 @@ def generate_launch_description():
             '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
             '/world/empty/model/go2/joint_state@sensor_msgs/msg/JointState[gz.msgs.Model',
             '/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist',
+            '/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan',
         ],
         remappings=[
             ('/world/empty/model/go2/joint_state', 'joint_states'),

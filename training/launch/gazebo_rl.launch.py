@@ -9,27 +9,52 @@ Usage:
 """
 
 import os
+import subprocess
+import tempfile
+from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, OpaqueFunction, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-URDF = "/home/asimov/quadruped-dog-rl/urdf/go2_unitree/urdf/go2_gz.urdf"
-WORLD = "/home/asimov/quadruped-dog-rl/training/envs/go2_gz_world.sdf"
+REPO = Path(__file__).resolve().parents[2]
+URDF = REPO / "urdf" / "go2_unitree" / "urdf" / "go2_gz.urdf"
+WORLD = REPO / "training" / "envs" / "go2_gz_world.sdf"
+STAND_SDF = Path(tempfile.gettempdir()) / "go2_stand.sdf"
+STAND_SDF_SCRIPT = REPO / "scripts" / "make_go2_stand.py"
+STAND_NODE = REPO / "scripts" / "stand_go2_gz.py"
 
 
 def generate_launch_description():
-    headless_arg = DeclareLaunchArgument("headless", default_value="true")
+    headless_arg = DeclareLaunchArgument("headless", default_value="false")
 
-    # Gazebo Harmonic — server-only headless (-s), run immediately (-r)
+    return LaunchDescription([
+        headless_arg,
+        OpaqueFunction(function=_launch_setup),
+    ])
+
+
+def _launch_setup(context, *args, **kwargs):
+    headless = LaunchConfiguration("headless").perform(context).lower() == "true"
+    gz_args = f"{'-s ' if headless else ''}{WORLD}"
+    subprocess.run([
+        "python3",
+        str(STAND_SDF_SCRIPT),
+        "--urdf",
+        str(URDF),
+        "--out",
+        str(STAND_SDF),
+    ], check=True)
+
+    # Gazebo Harmonic. Use server-only mode when headless, otherwise open GUI.
     gz_sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             os.path.join(get_package_share_directory("ros_gz_sim"), "launch", "gz_sim.launch.py")
         ]),
         launch_arguments={
-            "gz_args": f"-s -r {WORLD}",
+            "gz_args": gz_args,
             "on_exit_shutdown": "true",
         }.items(),
     )
@@ -51,8 +76,8 @@ def generate_launch_description():
         executable="create",
         arguments=[
             "-name", "go2",
-            "-string", robot_description,
-            "-x", "0", "-y", "0", "-z", "0.42",
+            "-file", str(STAND_SDF),
+            "-x", "0", "-y", "0", "-z", "0.45",
         ],
         output="screen",
     )
@@ -82,10 +107,15 @@ def generate_launch_description():
         output="screen",
     )
 
-    return LaunchDescription([
-        headless_arg,
+    stand = ExecuteProcess(
+        cmd=["python3", str(STAND_NODE), "--reset-upright", "--unpause"],
+        output="screen",
+    )
+
+    return [
         gz_sim,
         robot_state_pub,
         TimerAction(period=2.0, actions=[spawn]),
         bridge,
-    ])
+        TimerAction(period=4.0, actions=[stand]),
+    ]

@@ -11,10 +11,12 @@ import subprocess
 import xml.etree.ElementTree as ET
 import sys
 import os
+import argparse
+import tempfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-URDF = os.path.join(REPO, "urdf", "go2_unitree", "urdf", "go2.urdf")
-OUT_SDF = "/tmp/go2_stand.sdf"
+DEFAULT_URDF = os.path.join(REPO, "urdf", "go2_unitree", "urdf", "go2.urdf")
+DEFAULT_OUT_SDF = os.path.join(tempfile.gettempdir(), "go2_stand.sdf")
 
 # Go2 standing joint angles (radians)
 # Hip (abduction): 0, Thigh (hip flex): 0.8, Calf (knee): -1.5
@@ -33,9 +35,14 @@ STANDING_POSE = {
     "RR_calf_joint":  -1.5,
 }
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--urdf", default=DEFAULT_URDF)
+parser.add_argument("--out", default=DEFAULT_OUT_SDF)
+args = parser.parse_args()
+
 # Convert URDF -> SDF
 print("Converting URDF to SDF...")
-result = subprocess.run(["gz", "sdf", "-p", URDF], capture_output=True, text=True)
+result = subprocess.run(["gz", "sdf", "-p", args.urdf], capture_output=True, text=True)
 if result.returncode != 0:
     print("Error:", result.stderr)
     sys.exit(1)
@@ -63,6 +70,7 @@ for jname, angle in STANDING_POSE.items():
     plugin.set("filename", "gz-sim-joint-position-controller-system")
     plugin.set("name", "gz::sim::systems::JointPositionController")
     ET.SubElement(plugin, "joint_name").text = jname
+    ET.SubElement(plugin, "topic").text = f"/go2/cmd/{jname}"
     ET.SubElement(plugin, "p_gain").text = "200"
     ET.SubElement(plugin, "i_gain").text = "0.5"
     ET.SubElement(plugin, "d_gain").text = "10"
@@ -73,13 +81,25 @@ for jname, angle in STANDING_POSE.items():
     ET.SubElement(plugin, "target").text = str(angle)
     ET.SubElement(plugin, "use_velocity_commands").text = "false"
 
+imu_link = model.find("link[@name='imu']")
+if imu_link is None:
+    imu_link = model.find("link[@name='base']")
+if imu_link is not None and imu_link.find("sensor[@name='imu_sensor']") is None:
+    sensor = ET.SubElement(imu_link, "sensor")
+    sensor.set("name", "imu_sensor")
+    sensor.set("type", "imu")
+    ET.SubElement(sensor, "always_on").text = "1"
+    ET.SubElement(sensor, "update_rate").text = "100"
+    ET.SubElement(sensor, "topic").text = "/imu/data"
+    ET.SubElement(sensor, "imu")
+
 if hasattr(ET, "indent"):
     ET.indent(tree, space="  ")
-tree.write(OUT_SDF, encoding="unicode", xml_declaration=False)
+tree.write(args.out, encoding="unicode", xml_declaration=False)
 
-print(f"Standing SDF written to: {OUT_SDF}")
+print(f"Standing SDF written to: {args.out}")
 print()
 print("To spawn in Gazebo Garden:")
 print("  gz sim -r empty.sdf &")
 print("  sleep 4")
-print(f"  gz service -s /world/empty/create --reqtype gz.msgs.EntityFactory --reptype gz.msgs.Boolean --timeout 5000 --req \"sdf_filename: '{OUT_SDF}', name: 'go2', pose: {{position: {{z: 0.45}}}}\"")
+print(f"  gz service -s /world/empty/create --reqtype gz.msgs.EntityFactory --reptype gz.msgs.Boolean --timeout 5000 --req \"sdf_filename: '{args.out}', name: 'go2', pose: {{position: {{z: 0.45}}}}\"")

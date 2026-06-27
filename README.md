@@ -230,9 +230,38 @@ cd ros2 && colcon build --symlink-install --cmake-args -DBUILD_TESTING=OFF && cd
 # Use an already-running Gazebo (no auto-launch)
 ./scripts/train_policy.sh gazebo --no-launch
 
-# Launch Gazebo headlessly standalone
+# Launch Gazebo GUI standalone
 ros2 launch training/launch/gazebo_rl.launch.py
+
+# Headless mode
+ros2 launch training/launch/gazebo_rl.launch.py headless:=true
 ```
+
+The Gazebo launch starts paused, spawns the Go2, resets it upright, starts
+`scripts/stand_go2_gz.py`, then unpauses physics.
+This avoids the robot falling onto its back before the joint controllers receive
+their first commands.
+
+For keyboard joint teleop after launch:
+
+```bash
+source /opt/ros/humble/setup.bash
+source ros2/install/setup.bash
+./scripts/teleop_go2_gz.py
+```
+
+Nav2 can be started against the CHAMP map/config:
+
+```bash
+source /opt/ros/humble/setup.bash
+source ros2/install/setup.bash
+ros2 launch launch/nav2_go2.launch.py
+```
+
+The Gazebo stand/gait node subscribes to `/cmd_vel` and converts velocity
+commands into the same Gazebo joint target topics used by teleop. Full autonomous
+navigation also needs valid `map -> odom -> base_link` TF and obstacle data such
+as `/scan`.
 
 Robot URDF variants:
 - `urdf/go2_unitree/urdf/go2.urdf` — base model

@@ -210,21 +210,45 @@ Three ways to make the Go2 walk, in increasing order of control sophistication:
 |---------|----------|--------|
 | Native gz-sim (`training/launch/gazebo_rl.launch.py`) | RL policy or IK trot, direct `JointPositionController` | Working (see [Gazebo backend](#gazebo-backend-gazebo-harmonic-ros2)) |
 | CHAMP (`ros2/champ_config`) | Kinematic gait engine | Wired for CHAMP's generic reference robot only, not Go2 (see note above) |
-| **Quad-SDK** (`ros2/quad_sdk`) | NMPC + global/local planner, real Go2 config shipped upstream | **WIP** — builds clean end-to-end, not yet verified walking in Gazebo |
+| **Quad-SDK** (`ros2/quad_sdk`) | NMPC + global/local planner, real Go2 config shipped upstream | **WIP** — builds clean, spawns in Gazebo, blocked by Harmonic `gz_ros2_control` plugin mismatch |
 
-### Quad-SDK (NMPC locomotion) — Work in Progress
+### Quad-SDK (NMPC locomotion) — WIP
 
-[Quad-SDK](https://github.com/robomechanics/quad-sdk) (CMU Robomechanics Lab) is vendored under `ros2/quad_sdk/` (planning/control/comms packages) and `ros2/quad_sdk_external/` (RBDL + IPOPT, the NMPC solver's dependencies, built to a local no-sudo prefix). It ships Go2 as a first-class robot — real URDF, SDF, and pre-generated NMPC solver code (`nmpc_controller/src/gen/*_go2.cpp`) — plus terrain worlds (steps, gaps, slopes) under `ros2/quad_sdk/quad_simulator/quad_sim_scripts/worlds/`.
+[Quad-SDK](https://github.com/robomechanics/quad-sdk) is vendored in `ros2/quad_sdk/`. Its solver dependencies, RBDL and IPOPT, are built locally into `ros2/quad_sdk_external/`, so the Quad-SDK workspace does not need anything under `/usr/local`. The vendored tree includes Go2 URDF/SDF assets, terrain worlds, NMPC solver code, planners, `robot_driver`, and the Quad-SDK controller plugins.
 
-**Status: builds clean, runtime unverified.** All 20 packages (`quad_msgs`, `quad_utils`, `nmpc_controller`, `local_planner`, `global_body_planner`, `gazebo_plugins`, `gazebo_scripts`, and the description/sim-asset packages) compile and link with zero errors on this repo's actual Humble/Jammy toolchain. Getting there required real fixes, not just config, since this is a from-scratch port to a different ROS2 distro/CMake toolchain than upstream ships:
-- Upstream targets **ROS2 Jazzy on Ubuntu 24.04**; this repo runs **Humble on Jammy**. `ros-jazzy-*` → `ros-humble-*` in `setup_deps.sh` scripts and the `rosdep --rosdistro` flag were patched; the two hardcoded `/usr/local` paths in `nmpc_controller`/`local_planner`/`gazebo_plugins` CMakeLists now auto-detect the local RBDL/IPOPT prefix (no manual `-D` flags needed for a plain `colcon build`).
-- A CMake ordering bug: Ubuntu 22.04's system `jsoncpp` package unconditionally redefines an imported target with no `if(NOT TARGET...)` guard, which errors when both `quad_utils`'s Pinocchio/PCL chain and `gz-sim8`'s `gz-fuel_tools9` chain resolve it in the same configure. Fixed by finding `gz-sim8` before `quad_utils` in `gazebo_plugins/CMakeLists.txt`.
-- Pinocchio's compile definitions (e.g. `BOOST_MPL_LIMIT_LIST_SIZE=30`, needed since its joint-type variant now exceeds Boost's default 20-type `mpl::list` limit) only propagated to `quad_utils` itself, not to the 5 packages that transitively include its `quad_kd2.hpp` — each now links `pinocchio::pinocchio` directly.
-- The installed `ros2_control` (2.51.0) predates the `get_optional()`/`get_robot_description()` API `gazebo_plugins/src/controller_plugin.cpp` and `quad_wheel_controller_plugin.cpp` were written against — patched to the older `get_value()` / `node_->get_parameter("robot_description", ...)` shape.
-- `local_footstep_planner.cpp` did raw-message timestamp arithmetic (`header.stamp + rclcpp::Duration`), which doesn't compile — needs an explicit `rclcpp::Time(...)` wrapper around the message field first.
-- Hardware-only pieces (`robot_driver`, `unitree_sdk2`, mocap) and non-Go2 robot meshes were left out to keep this focused and small.
+**Current status:** the Humble/Jammy port now builds and launches far enough to spawn Go2 in Gazebo Harmonic. It does **not** walk yet. The remaining blocker is the sim control backend: this machine's `ros-humble-gz-ros2-control` library is built as an Ignition/Fortress plugin (`IgnitionPluginHook`), but the launch runs Gazebo Harmonic / `gz-sim8`, which requires `GzPluginHook`. Gazebo therefore rejects `libgz_ros2_control-system.so`, the `/robot_1/controller_manager` service never appears, and the joint controller cannot start.
 
-**Not yet verified:** whether Go2 actually stands/walks under NMPC control in Gazebo — the ros2_control YAML-to-joint-name wiring, namespace coexistence with the native gz-sim Go2 pipeline, and NMPC solver stability are all untested. Treat "compiles" and "walks" as separate milestones.
+Milestones:
+
+| Milestone | Status |
+|-----------|--------|
+| Build all Quad-SDK packages | Done |
+| Launch Gazebo and spawn Go2 | Done |
+| Start `robot_driver` in sim | Done |
+| Load `gz_ros2_control` under Harmonic | Blocked |
+| Walk with NMPC | Not yet |
+
+Porting fixes already applied:
+- ROS package/dependency names were moved from Jazzy/Noble assumptions to Humble/Jammy where packages exist.
+- RBDL/IPOPT lookup now auto-detects the local prefix under `ros2/quad_sdk_external/local`.
+- Pinocchio compile definitions are linked through packages that include `quad_utils/quad_kd2.hpp`.
+- `ros2_control` API calls were adjusted for the installed Humble controller-manager version.
+- Timestamp arithmetic was updated to wrap message stamps in `rclcpp::Time`.
+- Humble-missing grid-map UI/filter components are not installed by the setup script and are optional at launch: `enable_grid_map_viz:=false` and `enable_grid_map_filters:=false` by default.
+- Gazebo sim defaults to `estimator:=none`; the sim path already consumes ground-truth `RobotState`, so the mocap-oriented complementary filter is not required for launch.
+
+Useful smoke test:
+
+```bash
+timeout 45 bash -c '
+source /opt/ros/humble/setup.bash
+source ros2/install/setup.bash
+source ros2/quad_sdk_external/setup_env.sh
+ros2 launch quad_utils quad_gazebo.py gui:=false rviz:=false
+' | tail -220
+```
+
+Expected today: Go2 spawns, `robot_driver` logs `State estimator disabled (estimator_id='none')`, then Gazebo reports that `libgz_ros2_control-system.so` has no `GzPluginHook`. That is the next real fix needed before NMPC walking can be tested.
 
 **One-time setup** (three steps, in order):
 

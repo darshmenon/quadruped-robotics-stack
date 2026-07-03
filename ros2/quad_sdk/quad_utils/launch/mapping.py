@@ -17,7 +17,17 @@ def generate_launch_description():
         DeclareLaunchArgument('latch_grid_map_pub', default_value='true'),
         DeclareLaunchArgument('verbose', default_value='true'),
         DeclareLaunchArgument('world', default_value='step_20cm.sdf'),
-        DeclareLaunchArgument('use_sim_time', default_value='true')
+        DeclareLaunchArgument('use_sim_time', default_value='true'),
+        # grid_map_visualization isn't released for ROS2 Humble (only
+        # core/cv/msgs/pcl/ros grid_map subpackages are); it's RViz-only
+        # elevation-map markers, not needed for standing/walking, so this
+        # is off by default here rather than a hard launch failure.
+        DeclareLaunchArgument('enable_grid_map_viz', default_value='false'),
+        # The core grid_map_filters plugin package is not released for ROS2
+        # Humble. Only grid_map_cv is available, so the upstream filter chain
+        # aborts on gridMapFilters/DuplicationFilter. Keep raw mesh maps
+        # available and make the full traversability filter chain opt-in.
+        DeclareLaunchArgument('enable_grid_map_filters', default_value='false')
     ]
 
     # Node for terrain_map_publisher if input_type == "grid"
@@ -58,20 +68,17 @@ def generate_launch_description():
         condition=IfCondition(PythonExpression(["'", LaunchConfiguration('input_type'), "' == 'mesh'"]))
     )
 
-    # Launch the grid map visualizer
-    grid_map_visualization = Node(
-        package='grid_map_visualization',
-        executable='grid_map_visualization',
-        name='grid_map_visualization',
-        parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
-        # output='screen',
-        # parameters=[ PathJoinSubstitution([
-        #         FindPackageShare('quad_utils'),
-        #         'config',
-        #         'demo.yaml'
-        #     ]),
-
-        # ]
+    # Launch the grid map visualizer (optional -- see enable_grid_map_viz above)
+    grid_map_visualization = GroupAction(
+        actions=[
+            Node(
+                package='grid_map_visualization',
+                executable='grid_map_visualization',
+                name='grid_map_visualization',
+                parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
+            )
+        ],
+        condition=IfCondition(LaunchConfiguration('enable_grid_map_viz'))
     )
 
     # Launch the grid map filters demo node
@@ -92,6 +99,7 @@ def generate_launch_description():
         ],
         arguments=[],
         remappings=[],
+        condition=IfCondition(LaunchConfiguration('enable_grid_map_filters'))
         
     )
 

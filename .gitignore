@@ -17,6 +17,9 @@ logs/
 ros2/install/
 ros2/build/
 ros2/log/
+ros2/quad_sdk/robot_driver/log/latest
+ros2/quad_sdk/robot_driver/log/latest_list
+ros2/quad_sdk/robot_driver/log/list_*/
 
 # Quad-SDK locally-built deps (regenerate with scripts/build_quadsdk_local_libs.sh)
 ros2/quad_sdk_external/ipopt_build/

@@ -7,6 +7,7 @@ from launch_ros.actions import Node
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import Command, LaunchConfiguration
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -26,7 +27,7 @@ def generate_launch_description():
         executable="robot_state_publisher",
         
         parameters=[
-            {"robot_description": Command(["xacro ", description_path])},
+            {"robot_description": ParameterValue(Command(["xacro ", description_path]), value_type=str)},
             {"use_tf_static": False},
             {"publish_frequency": 200.0},
             {"ignore_timestamp": True},

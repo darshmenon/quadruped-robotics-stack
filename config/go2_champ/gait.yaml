@@ -1,0 +1,14 @@
+/**:
+  ros__parameters:
+    gait:
+      knee_orientation: ">>"
+      pantograph_leg: false
+      odom_scaler: 1.0
+      max_linear_velocity_x: 0.18
+      max_linear_velocity_y: 0.08
+      max_angular_velocity_z: 0.25
+      com_x_translation: 0.0
+      swing_height: 0.035
+      stance_depth: 0.0
+      stance_duration: 0.32
+      nominal_height: 0.22

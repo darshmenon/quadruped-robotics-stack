@@ -210,6 +210,12 @@ def main():
     parser.add_argument("--reset-upright", action="store_true")
     parser.add_argument("--unpause", action="store_true")
     parser.add_argument("--rate", type=float, default=50.0)
+    parser.add_argument(
+        "--duration-seconds",
+        type=float,
+        default=-1.0,
+        help="Exit after this many seconds. Negative values run until stopped.",
+    )
     args = parser.parse_args()
 
     if args.reset_upright:
@@ -244,15 +250,22 @@ def main():
         )
 
     period = 1.0 / args.rate
+    end_time = None
+    if args.duration_seconds >= 0.0:
+        end_time = time.monotonic() + args.duration_seconds
+
     try:
         while rclpy.ok():
+            if end_time is not None and time.monotonic() >= end_time:
+                break
             node.maybe_recover()
             node.publish_once()
             rclpy.spin_once(node, timeout_sec=0.0)
             time.sleep(period)
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

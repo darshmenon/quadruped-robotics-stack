@@ -21,7 +21,7 @@ from launch_ros.actions import Node
 
 REPO = Path(__file__).resolve().parents[2]
 URDF = REPO / "urdf" / "go2_unitree" / "urdf" / "go2_gz.urdf"
-WORLD = REPO / "training" / "envs" / "go2_gz_world.sdf"
+DEFAULT_WORLD = REPO / "training" / "envs" / "go2_gz_world.sdf"
 STAND_SDF = Path(tempfile.gettempdir()) / "go2_stand.sdf"
 STAND_SDF_SCRIPT = REPO / "scripts" / "make_go2_stand.py"
 STAND_NODE = REPO / "scripts" / "stand_go2_gz.py"
@@ -30,16 +30,22 @@ ODOM_NODE = REPO / "scripts" / "gz_pose_to_odom.py"
 
 def generate_launch_description():
     headless_arg = DeclareLaunchArgument("headless", default_value="false")
+    world_arg = DeclareLaunchArgument("world", default_value=str(DEFAULT_WORLD))
+    stand_duration_arg = DeclareLaunchArgument("stand_duration", default_value="-1.0")
 
     return LaunchDescription([
         headless_arg,
+        world_arg,
+        stand_duration_arg,
         OpaqueFunction(function=_launch_setup),
     ])
 
 
 def _launch_setup(context, *args, **kwargs):
     headless = LaunchConfiguration("headless").perform(context).lower() == "true"
-    gz_args = f"{'-s ' if headless else ''}{WORLD}"
+    world = LaunchConfiguration("world").perform(context)
+    stand_duration = LaunchConfiguration("stand_duration").perform(context)
+    gz_args = f"{'-s ' if headless else ''}{world}"
     subprocess.run([
         "python3",
         str(STAND_SDF_SCRIPT),
@@ -110,7 +116,14 @@ def _launch_setup(context, *args, **kwargs):
     )
 
     stand = ExecuteProcess(
-        cmd=["python3", str(STAND_NODE), "--reset-upright", "--unpause"],
+        cmd=[
+            "python3",
+            str(STAND_NODE),
+            "--reset-upright",
+            "--unpause",
+            "--duration-seconds",
+            stand_duration,
+        ],
         output="screen",
     )
 
@@ -130,8 +143,12 @@ def _launch_setup(context, *args, **kwargs):
     return [
         gz_sim,
         robot_state_pub,
-        TimerAction(period=2.0, actions=[spawn]),
+        # Delay spawn past world load: the multi-terrain world has ~65 extra
+        # static models, which takes longer to settle than the flat world
+        # under software rendering. Spawning too early drops the Go2 onto a
+        # not-yet-settled world and it faceplants immediately.
+        TimerAction(period=5.0, actions=[spawn]),
         bridge,
-        TimerAction(period=4.0, actions=[odom]),
-        TimerAction(period=4.0, actions=[stand]),
+        TimerAction(period=7.0, actions=[odom]),
+        TimerAction(period=7.0, actions=[stand]),
     ]

@@ -18,22 +18,25 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_URDF = os.path.join(REPO, "urdf", "go2_unitree", "urdf", "go2.urdf")
 DEFAULT_OUT_SDF = os.path.join(tempfile.gettempdir(), "go2_stand.sdf")
 
-# Go2 standing joint angles (radians)
-# Hip (abduction): 0, Thigh (hip flex): 0.8, Calf (knee): -1.5
+# Go2 standing joint angles (radians). These match the stable pose used by
+# stand_go2_gz.py and the CHAMP adapter.
 STANDING_POSE = {
-    "FL_hip_joint":   0.0,
+    "FL_hip_joint":   0.10,
     "FL_thigh_joint": 0.8,
     "FL_calf_joint":  -1.5,
-    "FR_hip_joint":   0.0,
+    "FR_hip_joint":   -0.10,
     "FR_thigh_joint": 0.8,
     "FR_calf_joint":  -1.5,
-    "RL_hip_joint":   0.0,
-    "RL_thigh_joint": 0.8,
+    "RL_hip_joint":   0.10,
+    "RL_thigh_joint": 1.0,
     "RL_calf_joint":  -1.5,
-    "RR_hip_joint":   0.0,
-    "RR_thigh_joint": 0.8,
+    "RR_hip_joint":   -0.10,
+    "RR_thigh_joint": 1.0,
     "RR_calf_joint":  -1.5,
 }
+
+FOOT_LINKS = {"FL_foot", "FR_foot", "RL_foot", "RR_foot"}
+CONTROLLER_PLUGIN = "gz::sim::systems::JointPositionController"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--urdf", default=DEFAULT_URDF)
@@ -55,6 +58,51 @@ tree = ET.ElementTree(ET.fromstring(sdf_text))
 root = tree.getroot()
 model = root.find("model")
 
+# go2_gz.urdf already carries JointPositionController plugins. Remove them
+# before adding this script's tuned controllers, otherwise duplicate
+# controllers fight over the same joints in Gazebo.
+for plugin in list(model.findall("plugin")):
+    if plugin.get("name") == CONTROLLER_PLUGIN:
+        model.remove(plugin)
+
+
+def ensure_child(parent, tag):
+    child = parent.find(tag)
+    if child is None:
+        child = ET.SubElement(parent, tag)
+    return child
+
+
+def set_text(parent, tag, text):
+    child = ensure_child(parent, tag)
+    child.text = str(text)
+    return child
+
+
+def tune_collision_surface(collision):
+    surface = ensure_child(collision, "surface")
+    friction = ensure_child(surface, "friction")
+    ode = ensure_child(friction, "ode")
+    set_text(ode, "mu", "2.5")
+    set_text(ode, "mu2", "2.5")
+    set_text(ode, "fdir1", "1 0 0")
+
+    contact = ensure_child(surface, "contact")
+    contact_ode = ensure_child(contact, "ode")
+    set_text(contact_ode, "kp", "100000")
+    set_text(contact_ode, "kd", "1")
+    set_text(contact_ode, "max_vel", "0.1")
+    set_text(contact_ode, "min_depth", "0.001")
+
+
+for link in model.findall("link"):
+    for collision in link.findall("collision"):
+        collision_name = collision.get("name", "")
+        is_foot_link = link.get("name") in FOOT_LINKS
+        is_lumped_foot = "foot_collision" in collision_name
+        if is_foot_link or is_lumped_foot:
+            tune_collision_surface(collision)
+
 # Add initial_position to each joint axis
 for joint in model.findall("joint"):
     jname = joint.get("name")
@@ -71,13 +119,13 @@ for jname, angle in STANDING_POSE.items():
     plugin.set("name", "gz::sim::systems::JointPositionController")
     ET.SubElement(plugin, "joint_name").text = jname
     ET.SubElement(plugin, "topic").text = f"/go2/cmd/{jname}"
-    ET.SubElement(plugin, "p_gain").text = "200"
-    ET.SubElement(plugin, "i_gain").text = "0.5"
-    ET.SubElement(plugin, "d_gain").text = "10"
-    ET.SubElement(plugin, "i_max").text = "1"
-    ET.SubElement(plugin, "i_min").text = "-1"
-    ET.SubElement(plugin, "cmd_max").text = "1000"
-    ET.SubElement(plugin, "cmd_min").text = "-1000"
+    ET.SubElement(plugin, "p_gain").text = "80"
+    ET.SubElement(plugin, "i_gain").text = "0"
+    ET.SubElement(plugin, "d_gain").text = "4"
+    ET.SubElement(plugin, "i_max").text = "0"
+    ET.SubElement(plugin, "i_min").text = "0"
+    ET.SubElement(plugin, "cmd_max").text = "120"
+    ET.SubElement(plugin, "cmd_min").text = "-120"
     ET.SubElement(plugin, "target").text = str(angle)
     ET.SubElement(plugin, "use_velocity_commands").text = "false"
 
@@ -130,4 +178,4 @@ print()
 print("To spawn in Gazebo Garden:")
 print("  gz sim -r empty.sdf &")
 print("  sleep 4")
-print(f"  gz service -s /world/empty/create --reqtype gz.msgs.EntityFactory --reptype gz.msgs.Boolean --timeout 5000 --req \"sdf_filename: '{args.out}', name: 'go2', pose: {{position: {{z: 0.45}}}}\"")
+print(f"  gz service -s /world/empty/create --reqtype gz.msgs.EntityFactory --reptype gz.msgs.Boolean --timeout 5000 --req \"sdf_filename: '{args.out}', name: 'go2', pose: {{position: {{z: 0.32}}}}\"")

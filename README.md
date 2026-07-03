@@ -217,7 +217,7 @@ Three ways to make the Go2 walk, in increasing order of control sophistication:
 |---------|----------|--------|
 | Native gz-sim (`training/launch/gazebo_rl.launch.py`) | RL policy or IK trot, direct `JointPositionController` | Working (see [Gazebo backend](#gazebo-backend-gazebo-harmonic-ros2)) |
 | CHAMP (`ros2/champ_config`) | Kinematic gait engine | Wired for CHAMP's generic reference robot only, not Go2 (see note above) |
-| **Quad-SDK** (`ros2/quad_sdk`) | NMPC + global/local planner, real Go2 config shipped upstream | **WIP** — builds clean, spawns in Gazebo Harmonic, native effort bridge starts; NMPC walking still needs validation |
+| **Quad-SDK** (`ros2/quad_sdk`) | NMPC + global/local planner, real Go2 config shipped upstream | **WIP** — stands, path-plans; NMPC solver runs but fails to converge (see below) |
 
 ### Quad-SDK (NMPC locomotion) — WIP
 
@@ -225,7 +225,11 @@ Three ways to make the Go2 walk, in increasing order of control sophistication:
 
 **Current status:** the Humble/Jammy port builds and launches Go2 in Gazebo Harmonic. The old blocker from `ros-humble-gz-ros2-control` is bypassed for Go2 by a native gz-sim8 system plugin, `quad_sim_effort_controller`, which subscribes to `/robot_1/control/joint_command` and applies Quad-SDK joint efforts directly in Gazebo. This confirms the sim, `robot_driver`, bridges, ground-truth state, and effort bridge can start together.
 
-`global_body_planner_node` now runs indefinitely without crashing (previously aborted within seconds on `GridMap::at(...): No map layer 'z_inpainted' available` — see fixes below). It currently loops on `WARN: Invalid start state, exiting`: Go2 spawns and holds a low **sit** pose (`sit_angles` in `controller_plugin.cpp`'s bootstrap PD hold, body height ~0.08m) rather than a standing pose, and the planner's `isValidState` rejects any body height below `h_min` ground clearance. Publishing `ros2 topic pub /robot_1/control/mode std_msgs/UInt8 "data: 1"` (upstream's documented "stand" trigger) did **not** raise it in a quick test — standing likely needs more of the stack driving it together (planner + NMPC issuing real joint commands) rather than `robot_driver` alone. This is a locomotion/control-tuning question now, not a crash — a genuinely different, more open-ended class of work than the porting fixes below.
+`global_body_planner_node` now runs indefinitely without crashing (previously aborted within seconds on `GridMap::at(...): No map layer 'z_inpainted' available` — see fixes below).
+
+Go2 spawns and holds a low **sit** pose (`sit_angles` in `controller_plugin.cpp`'s bootstrap PD hold, body height ~0.08m). Publishing `ros2 topic pub /robot_1/control/mode std_msgs/msg/UInt8 "data: 1"` is the documented "stand" trigger (`robot_driver.cpp`'s `SIT → SIT_TO_READY → READY` state machine, `READY = 1`, 1s interpolation) — a **single** `--once` publish can lose the message to a ROS2 discovery race (publisher exits before the subscription match completes); **publish for ~1-2s at a few Hz instead** (`--rate 5`, a couple seconds) and it reliably reaches standing height (verified: body z went from 0.08m → 0.286m).
+
+Once standing, `global_body_planner` **successfully computes and publishes a real plan** (e.g. `Solve time: 0.036s, Vertices generated: 6, Path length: 5.06m` for a `goal_state:=[3.0, 0.0]` override) and `local_planner`/`nmpc_controller` pick it up and start solving. This is real, working RRT-based global planning — a genuine milestone. IPOPT then runs at high frequency but currently reports `NMPC solving fail` on every call. This is qualitatively different from every issue above: a numerical-optimization convergence problem (warm-start quality, joint/torque bound setup, horizon/dt tuning), not a crash or missing dependency, and the natural next investigation for whoever picks this up (start by getting IPOPT's actual exit/infeasibility diagnostics logged — currently only a pass/fail message surfaces, no solver-level detail).
 
 Milestones:
 
@@ -236,9 +240,10 @@ Milestones:
 | Start `robot_driver` in sim | Done |
 | Drive Go2 joints in Harmonic without `gz_ros2_control` | Done |
 | Start NMPC planner launch without crashing | Done |
-| Robot reaches a valid standing pose | Not yet — currently stuck at sit height |
-| Publish `/robot_1/local_plan` reliably | Blocked on the above |
-| Walk with NMPC | Not yet |
+| Robot reaches a valid standing pose | Done (needs a held-down `control/mode` publish, not `--once`) |
+| `global_body_planner` computes and publishes a real path | Done |
+| NMPC (`local_planner`/`nmpc_controller`) converges reliably | Not yet — IPOPT runs but fails every call |
+| Walk with NMPC | Not yet — blocked on NMPC convergence |
 
 Porting fixes already applied:
 - ROS package/dependency names were moved from Jazzy/Noble assumptions to Humble/Jammy where packages exist.

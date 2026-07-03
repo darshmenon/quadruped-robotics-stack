@@ -8,6 +8,17 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+
+# gz-sim8 must be found before quad_utils: quad_utils transitively pulls in
+# jsoncpp via CONFIG mode (through its Pinocchio/PCL/VTK chain), and
+# gz-fuel_tools9 (a gz-sim8 dependency) does the same. jsoncpp's own
+# jsoncpp-namespaced-targets.cmake unconditionally add_library()s
+# JsonCpp::JsonCpp with no `if(NOT TARGET ...)` guard, so whichever chain
+# runs second hard-errors on redefining it. Finding gz-sim8 first avoids
+# that -- confirmed empirically, not just theorized.
+find_package(gz-sim8 REQUIRED)
+find_package(gz-plugin2 REQUIRED)
+
 find_package(controller_interface REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
@@ -18,10 +29,19 @@ find_package(quad_utils REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(quad_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
-find_package(RBDL REQUIRED COMPONENTS URDFREADER)
+find_package(pinocchio REQUIRED)
 
-find_package(gz-sim8 REQUIRED)
-find_package(gz-plugin2 REQUIRED)
+if(NOT DEFINED QUADSDK_DEPS_PREFIX)
+  set(_quadsdk_default_prefix "${CMAKE_CURRENT_SOURCE_DIR}/../../../quad_sdk_external/local")
+  if(EXISTS "${_quadsdk_default_prefix}")
+    get_filename_component(QUADSDK_DEPS_PREFIX "${_quadsdk_default_prefix}" ABSOLUTE)
+  endif()
+endif()
+if(DEFINED QUADSDK_DEPS_PREFIX)
+  list(APPEND CMAKE_PREFIX_PATH "${QUADSDK_DEPS_PREFIX}")
+endif()
+
+find_package(RBDL REQUIRED COMPONENTS URDFREADER)
 # list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../quad_utils/cmake")
 # find_package(RBDL REQUIRED COMPONENTS URDFREADER)
 
@@ -50,6 +70,17 @@ add_library(quad_wheel_controller SHARED
 add_library(spawn_lock SHARED
   src/spawn_lock_plugin.cpp
 )
+
+# These four (not spawn_lock) transitively include quad_utils's
+# ros_utils.hpp/quad_kd2.hpp. ament_target_dependencies(quad_utils) alone
+# doesn't propagate pinocchio's INTERFACE_COMPILE_DEFINITIONS (e.g.
+# BOOST_MPL_LIMIT_LIST_SIZE=30, needed since Pinocchio's joint-type variant
+# now exceeds Boost's default 20-type mpl::list limit), so link the modern
+# imported target directly.
+target_link_libraries(ground_truth_estimator pinocchio::pinocchio)
+target_link_libraries(quad_wheel_ground_truth_estimator pinocchio::pinocchio)
+target_link_libraries(quad_controller pinocchio::pinocchio)
+target_link_libraries(quad_wheel_controller pinocchio::pinocchio)
 
 
 target_include_directories(ground_truth_estimator PUBLIC

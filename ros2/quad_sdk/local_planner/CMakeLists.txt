@@ -20,13 +20,19 @@ find_package(Eigen3 REQUIRED)
 find_package(PythonLibs REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(pinocchio REQUIRED)
 
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 
 if(NOT DEFINED QUADSDK_DEPS_PREFIX)
-  set(QUADSDK_DEPS_PREFIX "/usr/local")
+  set(_quadsdk_default_prefix "${CMAKE_CURRENT_SOURCE_DIR}/../../quad_sdk_external/local")
+  if(EXISTS "${_quadsdk_default_prefix}")
+    get_filename_component(QUADSDK_DEPS_PREFIX "${_quadsdk_default_prefix}" ABSOLUTE)
+  else()
+    set(QUADSDK_DEPS_PREFIX "/usr/local")
+  endif()
 endif()
 
 include_directories(
@@ -42,6 +48,10 @@ add_library(local_planner
   src/local_planner.cpp
   src/local_footstep_planner.cpp
 )
+# See global_body_planner/CMakeLists.txt for why this direct link is needed
+# (ament_target_dependencies(quad_utils) alone doesn't propagate pinocchio's
+# INTERFACE_COMPILE_DEFINITIONS).
+target_link_libraries(local_planner pinocchio::pinocchio)
 
 add_executable(local_planner_node src/local_planner_node.cpp)
 target_link_libraries(local_planner_node local_planner)

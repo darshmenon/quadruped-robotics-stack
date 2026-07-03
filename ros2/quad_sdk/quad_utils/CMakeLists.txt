@@ -173,6 +173,13 @@ ament_target_dependencies(quad_utils
   pinocchio
 )
 
+# ament_target_dependencies() only picks up pinocchio_INCLUDE_DIRS (the top-level
+# include dir), but this codebase's #include <pinocchio/multibody/model.hpp>-style
+# paths only exist under the package's deprecated/ compat shim on Pinocchio 3/4.
+# Linking the modern imported target instead pulls that dir in transitively via
+# pinocchio::pinocchio -> pinocchio_default -> pinocchio_headers.
+target_link_libraries(quad_utils pinocchio::pinocchio)
+
 ament_target_dependencies(mesh_to_grid_map_node rclcpp)
 
 
@@ -311,7 +318,13 @@ install(
   DESTINATION share/${PROJECT_NAME}/rviz
 )
 
-ament_export_include_directories(include)
+# This codebase's #include <pinocchio/multibody/model.hpp>-style paths only
+# resolve via Pinocchio 3/4's deprecated/ compat shim (a nested pinocchio/
+# tree mirroring the old layout), which plain find_package(pinocchio) does
+# not add to pinocchio_INCLUDE_DIRS. Export it here (derived from wherever
+# pinocchio actually resolved, not hardcoded) so every downstream package
+# that transitively includes quad_kd2.hpp picks it up automatically.
+ament_export_include_directories(include "${pinocchio_INCLUDE_DIRS}/pinocchio/deprecated")
 ament_export_libraries(quad_utils)
 ament_export_dependencies(
   rclcpp std_msgs nav_msgs nav2_msgs sensor_msgs geometry_msgs visualization_msgs

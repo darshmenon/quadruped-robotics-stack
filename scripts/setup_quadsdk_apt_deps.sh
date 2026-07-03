@@ -5,7 +5,10 @@
 # nothing is added to bashrc and no third-party apt repos are added (this
 # environment already has Gazebo Harmonic / gz-sim8 installed via
 # ros-humble-ros-gzharmonic-*, so we reuse that instead of the upstream
-# Quad-SDK script's OSRF gazebo-stable repo).
+# Quad-SDK script's OSRF gazebo-stable repo). ros-humble-ros-gz is deliberately
+# NOT installed here: it Conflicts with the already-installed
+# ros-humble-ros-gzharmonic-* packages, which already provide the same
+# ros_gz_sim / ros_gz_bridge ROS packages quad_utils's launch files need.
 set -euo pipefail
 
 sudo apt-get update
@@ -18,7 +21,6 @@ sudo apt-get install -y \
   ros-humble-plotjuggler-ros \
   ros-humble-cv-bridge \
   ros-humble-vision-opencv \
-  ros-humble-ros-gz \
   ros-humble-gz-ros2-control \
   ros-humble-ros2-controllers \
   ros-humble-topic-tools \

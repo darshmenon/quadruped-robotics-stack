@@ -180,6 +180,9 @@ controller_interface::CallbackReturn QuadController::on_init() {
     node_->declare_parameter<std::string>(leg_ns + ".joints.knee.name", "");
   }
   node_->declare_parameter<std::string>("topics.control.joint_command", "");
+  if (!node_->has_parameter("robot_description")) {
+    node_->declare_parameter<std::string>("robot_description", "");
+  }
   node_->declare_parameter<std::vector<double>>("motor_limits.torque",
                                                 std::vector<double>{});
   node_->declare_parameter<std::vector<double>>("motor_limits.speed",
@@ -194,7 +197,8 @@ controller_interface::CallbackReturn QuadController::on_init() {
 
 controller_interface::CallbackReturn QuadController::on_configure(
     const rclcpp_lifecycle::State& /*previous_state*/) {
-  std::string urdf_string = get_robot_description();
+  std::string urdf_string;
+  node_->get_parameter("robot_description", urdf_string);
   // RCLCPP_INFO(node_->get_logger(), "URDF: %s", urdf_string.c_str());
 
   urdf::Model urdf;
@@ -318,17 +322,12 @@ controller_interface::return_type QuadController::update(
       for (unsigned int i = 0; i < n_joints_; i++) {
         std::pair<int, int> ind = leg_map_[i];
         double target = sit_angles[ind.second];
-        auto pos_opt = joint_pos_handles_[i].get_optional();
-        auto vel_opt = joint_vel_handles_[i].get_optional();
-        double pos = pos_opt.has_value() ? pos_opt.value() : 0.0;
-        double vel = vel_opt.has_value() ? vel_opt.value() : 0.0;
+        double pos = joint_pos_handles_[i].get_value();
+        double vel = joint_vel_handles_[i].get_value();
         double torque = hold_kp * (target - pos) + hold_kd * (0.0 - vel);
         double torque_lim = torque_lims_[ind.second];
         torque = std::min(std::max(torque, -torque_lim), torque_lim);
-        if (!joint_cmd_handles_[i].set_value(torque)) {
-          RCLCPP_WARN(node_->get_logger(),
-                      "Failed to set Torque Command for Joint");
-        }
+        joint_cmd_handles_[i].set_value(torque);
       }
       return controller_interface::return_type::OK;
     }
@@ -352,15 +351,7 @@ controller_interface::return_type QuadController::update(
     double command_position = motor_command.pos_setpoint;
     enforceJointLimits(command_position, i);
     // double current_position = joints_.at(i).getPosition();
-    // double current_position = joint_pos_handles_[i].get_value(); // get_value
-    // deprecated in next ros release
-    auto pose_opt = joint_pos_handles_[i].get_optional();
-    double current_position = 0.0;
-    if (pose_opt.has_value()) {
-      current_position = pose_opt.value();
-    } else {
-      RCLCPP_WARN(node_->get_logger(), "Missing Joint Pose Message");
-    }
+    double current_position = joint_pos_handles_[i].get_value();
     double kp = motor_command.kp;
     double pos_error;
     angles::shortest_angular_distance_with_large_limits(
@@ -369,14 +360,7 @@ controller_interface::return_type QuadController::update(
 
     // Compute velocity error
     // double current_vel = joints_.at(i).getVelocity();
-    // double current_vel = joint_vel_handles_[i].get_value();
-    auto vel_opt = joint_vel_handles_[i].get_optional();
-    double current_vel = 0.0;
-    if (vel_opt.has_value()) {
-      current_vel = vel_opt.value();
-    } else {
-      RCLCPP_WARN(node_->get_logger(), "Missing Joint Velocity Message");
-    }
+    double current_vel = joint_vel_handles_[i].get_value();
     double command_vel = motor_command.vel_setpoint;
     double vel_error = command_vel - current_vel;
     double kd = motor_command.kd;
@@ -398,11 +382,7 @@ controller_interface::return_type QuadController::update(
 
     // Update joint torque
     // joints_.at(i).setCommand(torque_command);
-    bool success = joint_cmd_handles_[i].set_value(torque_command);
-    if (!success) {
-      RCLCPP_WARN(node_->get_logger(),
-                  "Failed to set Torque Command for Joint");
-    }
+    joint_cmd_handles_[i].set_value(torque_command);
   }
   return controller_interface::return_type::OK;
 }

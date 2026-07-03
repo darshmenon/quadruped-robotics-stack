@@ -15,6 +15,7 @@ find_package(quad_msgs REQUIRED)
 find_package(quad_utils REQUIRED)
 find_package(grid_map_core REQUIRED)
 find_package(grid_map_ros REQUIRED)
+find_package(pinocchio REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
@@ -31,6 +32,13 @@ set(MY_LIB_SOURCES
 
 # Create library
 add_library(${PROJECT_NAME} ${MY_LIB_SOURCES})
+# quad_utils transitively needs pinocchio (for ros_utils.hpp/quad_kd2.hpp),
+# but ament_target_dependencies() only carries quad_utils's legacy
+# INCLUDE_DIRS/LIBRARIES, not pinocchio's INTERFACE_COMPILE_DEFINITIONS
+# (e.g. BOOST_MPL_LIMIT_LIST_SIZE=30, needed since Pinocchio's joint-type
+# variant now exceeds Boost's default 20-type mpl::list limit). Link the
+# modern imported target directly so those propagate correctly.
+target_link_libraries(${PROJECT_NAME} pinocchio::pinocchio)
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   std_msgs

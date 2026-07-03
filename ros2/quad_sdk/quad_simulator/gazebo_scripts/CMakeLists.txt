@@ -12,6 +12,7 @@ find_package(quad_utils)
 find_package(std_msgs)
 find_package(tf2_ros REQUIRED)
 find_package(ros_gz_interfaces REQUIRED)
+find_package(pinocchio REQUIRED)
   # Mark the existing target as non-global and allow duplicates
 
 # find_library(Protobuf REQUIRED)
@@ -35,6 +36,8 @@ target_include_directories(contact_state_publisher_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
+# See global_body_planner/CMakeLists.txt for why this direct link is needed.
+target_link_libraries(contact_state_publisher_node pinocchio::pinocchio)
 
 ament_target_dependencies(contact_state_publisher_node
   rclcpp

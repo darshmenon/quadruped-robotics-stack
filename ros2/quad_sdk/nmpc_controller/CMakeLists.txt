@@ -17,12 +17,18 @@ find_package(grid_map_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(pinocchio REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 
 if(NOT DEFINED QUADSDK_DEPS_PREFIX)
-  set(QUADSDK_DEPS_PREFIX "/usr/local")
+  set(_quadsdk_default_prefix "${CMAKE_CURRENT_SOURCE_DIR}/../../quad_sdk_external/local")
+  if(EXISTS "${_quadsdk_default_prefix}")
+    get_filename_component(QUADSDK_DEPS_PREFIX "${_quadsdk_default_prefix}" ABSOLUTE)
+  else()
+    set(QUADSDK_DEPS_PREFIX "/usr/local")
+  endif()
 endif()
 
 include_directories(
@@ -59,6 +65,7 @@ set_source_files_properties(${NMPC_GEN_SOURCES}
 target_link_libraries(nmpc_controller
   Eigen3::Eigen
   ipopt
+  pinocchio::pinocchio
 )
 
 ament_target_dependencies(nmpc_controller

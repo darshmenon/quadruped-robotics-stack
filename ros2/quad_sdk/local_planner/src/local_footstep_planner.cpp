@@ -541,7 +541,7 @@ void LocalFootstepPlanner::loadFootPlanMsgs(
               foot_plan_continuous_msg.header.stamp;
         } else {
           foot_plan_continuous_msg.states[i].header.stamp =
-              foot_plan_continuous_msg.header.stamp +
+              rclcpp::Time(foot_plan_continuous_msg.header.stamp) +
               rclcpp::Duration::from_seconds(first_element_duration) +
               rclcpp::Duration::from_seconds((i - 1) * dt_);
         }

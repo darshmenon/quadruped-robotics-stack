@@ -20,8 +20,16 @@ Supports: Unitree Go2, Boston Dynamics Spot, MIT Mini Cheetah, ANYmal B/C, Mini 
 - [System Requirements](#system-requirements)
 - [Build ROS2 Packages](#build-ros2-packages)
 - [Quick Start](#quick-start)
+- [CHAMP Locomotion Simulation](#champ-locomotion-simulation)
+- [Locomotion Backends](#locomotion-backends)
 - [RL Policy Training](#rl-policy-training)
+- [Headless IK Controller](#headless-ik-controller-no-rl)
+- [Play Trained Policy](#play-trained-policy-opencv-viewer)
+- [Keyboard Teleop](#keyboard-teleop-mujoco-with-rl-policy)
+- [Deploy Trained Policy in MuJoCo](#deploy-trained-policy-in-mujoco)
+- [Available Robots](#available-robots)
 - [Intelligence Modules](#intelligence-modules)
+- [References](#references)
 
 ---
 
@@ -91,7 +99,7 @@ quadruped-dog-rl/
 
 - Ubuntu 22.04
 - ROS2 Humble
-- Gazebo Garden (gz-sim7) — works with `ros_gz_sim`
+- Gazebo Harmonic (gz-sim8) — works with `ros_gz_sim`
 - Python 3.8+
 - NVIDIA GPU with 10GB+ VRAM for RL training
 
@@ -202,13 +210,21 @@ Three ways to make the Go2 walk, in increasing order of control sophistication:
 |---------|----------|--------|
 | Native gz-sim (`training/launch/gazebo_rl.launch.py`) | RL policy or IK trot, direct `JointPositionController` | Working (see [Gazebo backend](#gazebo-backend-gazebo-harmonic-ros2)) |
 | CHAMP (`ros2/champ_config`) | Kinematic gait engine | Wired for CHAMP's generic reference robot only, not Go2 (see note above) |
-| **Quad-SDK** (`ros2/quad_sdk`) | NMPC + global/local planner, real Go2 config shipped upstream | Vendored in this repo; needs a one-time local dependency build (below) |
+| **Quad-SDK** (`ros2/quad_sdk`) | NMPC + global/local planner, real Go2 config shipped upstream | **WIP** — builds clean end-to-end, not yet verified walking in Gazebo |
 
-### Quad-SDK (NMPC locomotion)
+### Quad-SDK (NMPC locomotion) — Work in Progress
 
-[Quad-SDK](https://github.com/robomechanics/quad-sdk) (CMU Robomechanics Lab) is vendored under `ros2/quad_sdk/` (planning/control/comms packages) and `ros2/quad_sdk_external/` (RBDL + IPOPT, the NMPC solver's dependencies). It ships Go2 as a first-class robot — real URDF, SDF, and pre-generated NMPC solver code (`nmpc_controller/src/gen/*_go2.cpp`) — plus terrain worlds (steps, gaps, slopes) under `ros2/quad_sdk/quad_simulator/quad_sim_scripts/worlds/`.
+[Quad-SDK](https://github.com/robomechanics/quad-sdk) (CMU Robomechanics Lab) is vendored under `ros2/quad_sdk/` (planning/control/comms packages) and `ros2/quad_sdk_external/` (RBDL + IPOPT, the NMPC solver's dependencies, built to a local no-sudo prefix). It ships Go2 as a first-class robot — real URDF, SDF, and pre-generated NMPC solver code (`nmpc_controller/src/gen/*_go2.cpp`) — plus terrain worlds (steps, gaps, slopes) under `ros2/quad_sdk/quad_simulator/quad_sim_scripts/worlds/`.
 
-Upstream targets **ROS2 Jazzy on Ubuntu 24.04**; this repo runs **Humble on Jammy**, so the vendored copy has been patched (`ros-jazzy-*` → `ros-humble-*` in `setup_deps.sh` scripts, `rosdep --rosdistro` flag) and the two hardcoded `/usr/local` paths in `nmpc_controller/CMakeLists.txt` / `local_planner/CMakeLists.txt` were made configurable via `-DQUADSDK_DEPS_PREFIX=...` so RBDL/IPOPT don't need a sudo install to `/usr/local`. The Gazebo side needs no porting — it targets `gz-sim8`, which is exactly the Harmonic version already installed here. Hardware-only pieces (`robot_driver`, `unitree_sdk2`, mocap) and non-Go2 robot meshes were left out to keep this focused and small.
+**Status: builds clean, runtime unverified.** All 20 packages (`quad_msgs`, `quad_utils`, `nmpc_controller`, `local_planner`, `global_body_planner`, `gazebo_plugins`, `gazebo_scripts`, and the description/sim-asset packages) compile and link with zero errors on this repo's actual Humble/Jammy toolchain. Getting there required real fixes, not just config, since this is a from-scratch port to a different ROS2 distro/CMake toolchain than upstream ships:
+- Upstream targets **ROS2 Jazzy on Ubuntu 24.04**; this repo runs **Humble on Jammy**. `ros-jazzy-*` → `ros-humble-*` in `setup_deps.sh` scripts and the `rosdep --rosdistro` flag were patched; the two hardcoded `/usr/local` paths in `nmpc_controller`/`local_planner`/`gazebo_plugins` CMakeLists now auto-detect the local RBDL/IPOPT prefix (no manual `-D` flags needed for a plain `colcon build`).
+- A CMake ordering bug: Ubuntu 22.04's system `jsoncpp` package unconditionally redefines an imported target with no `if(NOT TARGET...)` guard, which errors when both `quad_utils`'s Pinocchio/PCL chain and `gz-sim8`'s `gz-fuel_tools9` chain resolve it in the same configure. Fixed by finding `gz-sim8` before `quad_utils` in `gazebo_plugins/CMakeLists.txt`.
+- Pinocchio's compile definitions (e.g. `BOOST_MPL_LIMIT_LIST_SIZE=30`, needed since its joint-type variant now exceeds Boost's default 20-type `mpl::list` limit) only propagated to `quad_utils` itself, not to the 5 packages that transitively include its `quad_kd2.hpp` — each now links `pinocchio::pinocchio` directly.
+- The installed `ros2_control` (2.51.0) predates the `get_optional()`/`get_robot_description()` API `gazebo_plugins/src/controller_plugin.cpp` and `quad_wheel_controller_plugin.cpp` were written against — patched to the older `get_value()` / `node_->get_parameter("robot_description", ...)` shape.
+- `local_footstep_planner.cpp` did raw-message timestamp arithmetic (`header.stamp + rclcpp::Duration`), which doesn't compile — needs an explicit `rclcpp::Time(...)` wrapper around the message field first.
+- Hardware-only pieces (`robot_driver`, `unitree_sdk2`, mocap) and non-Go2 robot meshes were left out to keep this focused and small.
+
+**Not yet verified:** whether Go2 actually stands/walks under NMPC control in Gazebo — the ros2_control YAML-to-joint-name wiring, namespace coexistence with the native gz-sim Go2 pipeline, and NMPC solver stability are all untested. Treat "compiles" and "walks" as separate milestones.
 
 **One-time setup** (three steps, in order):
 
@@ -219,9 +235,9 @@ Upstream targets **ROS2 Jazzy on Ubuntu 24.04**; this repo runs **Humble on Jamm
 # 2. RBDL + IPOPT, built into ros2/quad_sdk_external/local (no sudo)
 ./scripts/build_quadsdk_local_libs.sh
 
-# 3. Build the ROS2 workspace, pointing nmpc_controller/local_planner at the local libs
+# 3. Build the ROS2 workspace — QUADSDK_DEPS_PREFIX auto-detects the local libs
 cd ros2
-colcon build --symlink-install --cmake-args -DQUADSDK_DEPS_PREFIX="$(pwd)/quad_sdk_external/local"
+colcon build --symlink-install
 source install/setup.bash
 cd ..
 ```
@@ -238,14 +254,6 @@ source ros2/install/setup.bash
 source ros2/quad_sdk_external/setup_env.sh
 ros2 launch quad_utils quad_plan.py
 ```
-
-> **Known gap:** the local dependency build (step 2) has not been verified to
-> completion in this environment — the IPOPT build compiles MUMPS/ASL from
-> source via `coinbrew` and can take a while on first run. RBDL builds cleanly
-> against the vendored `urdfparser` submodule. If `colcon build` fails on
-> `nmpc_controller` or `local_planner`, check that step 2 actually finished
-> and that `QUADSDK_DEPS_PREFIX` points at a directory containing
-> `include/coin-or` and `lib/libipopt.so`.
 
 ---
 
@@ -505,16 +513,16 @@ ros2 launch launch/policy_deploy.launch.py checkpoint:=/path/to/policy.pt task:=
 
 ## Available Robots
 
-| Robot | URDF Path | RL Task |
-|-------|-----------|---------|
-| Unitree Go2 | `urdf/go2_unitree/urdf/go2.urdf` | `go2` |
-| Unitree H1 | — | `h1`, `h1_2` |
-| Unitree G1 | — | `g1` |
-| Boston Dynamics Spot | `urdf/spot_config/` | — |
-| MIT Mini Cheetah | `urdf/mini_cheetah_config/` | — |
-| ANYmal B | `urdf/anymal_b_config/` | — |
-| ANYmal C | `urdf/anymal_c_config/` | — |
-| Mini Pupper | `urdf/mini_pupper_config/` | — |
+| Robot | URDF Path | RL Task | Quad-SDK config |
+|-------|-----------|---------|------------------|
+| Unitree Go2 | `urdf/go2_unitree/urdf/go2.urdf` | `go2` | `ros2/quad_sdk/quad_simulator/go2_description/` |
+| Unitree H1 | — | `h1`, `h1_2` | — |
+| Unitree G1 | — | `g1` | — |
+| Boston Dynamics Spot | `urdf/spot_config/` | — | — |
+| MIT Mini Cheetah | `urdf/mini_cheetah_config/` | — | — |
+| ANYmal B | `urdf/anymal_b_config/` | — | — |
+| ANYmal C | `urdf/anymal_c_config/` | — | — |
+| Mini Pupper | `urdf/mini_pupper_config/` | — | — |
 
 ---
 

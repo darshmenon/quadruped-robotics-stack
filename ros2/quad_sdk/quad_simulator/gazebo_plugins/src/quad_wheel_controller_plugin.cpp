@@ -204,6 +204,9 @@ controller_interface::CallbackReturn QuadWheelController::on_init() {
     node_->declare_parameter<std::string>(leg_ns + ".joints.wheel.name", "");
   }
   node_->declare_parameter<std::string>("topics.control.joint_command", "");
+  if (!node_->has_parameter("robot_description")) {
+    node_->declare_parameter<std::string>("robot_description", "");
+  }
   node_->declare_parameter<std::vector<double>>("motor_limits.torque",
                                                 std::vector<double>{});
   node_->declare_parameter<std::vector<double>>("motor_limits.speed",
@@ -218,7 +221,8 @@ controller_interface::CallbackReturn QuadWheelController::on_init() {
 
 controller_interface::CallbackReturn QuadWheelController::on_configure(
     const rclcpp_lifecycle::State& /*previous_state*/) {
-  std::string urdf_string = get_robot_description();
+  std::string urdf_string;
+  node_->get_parameter("robot_description", urdf_string);
 
   urdf::Model urdf;
   if (!urdf.initString(urdf_string)) {
@@ -313,13 +317,8 @@ controller_interface::return_type QuadWheelController::update(
     const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) {
   BufferType& commands = *commands_buffer_.readFromRT();
 
-  // Write a torque command to a joint handle, warning if the (nodiscard)
-  // set_value fails so a dropped command doesn't pass silently.
   auto set_cmd = [this](unsigned int i, double torque) {
-    if (!joint_cmd_handles_[i].set_value(torque)) {
-      RCLCPP_WARN(node_->get_logger(),
-                  "Failed to set Torque Command for Joint");
-    }
+    joint_cmd_handles_[i].set_value(torque);
   };
 
   // Before any command has been received, hold sitting pose with PD on
@@ -339,10 +338,8 @@ controller_interface::return_type QuadWheelController::update(
           continue;
         }
         double target = sit_angles[ind.second];
-        auto pos_opt = joint_pos_handles_[i].get_optional();
-        auto vel_opt = joint_vel_handles_[i].get_optional();
-        double pos = pos_opt.has_value() ? pos_opt.value() : 0.0;
-        double vel = vel_opt.has_value() ? vel_opt.value() : 0.0;
+        double pos = joint_pos_handles_[i].get_value();
+        double vel = joint_vel_handles_[i].get_value();
         double torque = hold_kp * (target - pos) + hold_kd * (0.0 - vel);
         double torque_lim = torque_lims_[ind.second];
         torque = std::min(std::max(torque, -torque_lim), torque_lim);
@@ -373,8 +370,7 @@ controller_interface::return_type QuadWheelController::update(
 
     // Wheel motors: kp ignored, velocity tracking only.
     if (ind.second == 3) {
-      auto vel_opt = joint_vel_handles_[i].get_optional();
-      double current_vel = vel_opt.has_value() ? vel_opt.value() : 0.0;
+      double current_vel = joint_vel_handles_[i].get_value();
       double vel_error = mc.vel_setpoint - current_vel;
       double torque_command = mc.kd * vel_error + torque_ff;
       double torque_lim = wheel_torque_lims_.front();
@@ -388,15 +384,13 @@ controller_interface::return_type QuadWheelController::update(
     // go2w simulate identically on the leg side).
     double command_position = mc.pos_setpoint;
     enforceJointLimits(command_position, i);
-    auto pos_opt = joint_pos_handles_[i].get_optional();
-    double current_position = pos_opt.has_value() ? pos_opt.value() : 0.0;
+    double current_position = joint_pos_handles_[i].get_value();
     double pos_error = 0.0;
     angles::shortest_angular_distance_with_large_limits(
         current_position, command_position, joint_urdfs_[i]->limits->lower,
         joint_urdfs_[i]->limits->upper, pos_error);
 
-    auto vel_opt = joint_vel_handles_[i].get_optional();
-    double current_vel = vel_opt.has_value() ? vel_opt.value() : 0.0;
+    double current_vel = joint_vel_handles_[i].get_value();
     double vel_error = mc.vel_setpoint - current_vel;
 
     double torque_feedback = mc.kp * pos_error + mc.kd * vel_error;

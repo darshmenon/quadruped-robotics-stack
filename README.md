@@ -46,7 +46,9 @@ quadruped-dog-rl/
 │   ├── champ_gazebo/        # Gazebo simulation
 │   ├── champ_navigation/    # Navigation stack
 │   ├── champ_teleop/        # Keyboard/joystick teleoperation
-│   └── robots/              # Pre-configured robot packages
+│   ├── robots/              # Pre-configured robot packages
+│   ├── quad_sdk/            # Quad-SDK (CMU) NMPC locomotion backend, Go2-focused
+│   └── quad_sdk_external/   # RBDL + IPOPT sources/local build for quad_sdk
 ├── launch/                  # Top-level launch files
 │   ├── view_go2.launch.py   # View Go2 URDF in RViz2
 │   ├── gazebo_go2.launch.py # Spawn Go2 in Gazebo Garden
@@ -189,6 +191,61 @@ ros2 launch champ_teleop teleop.launch.py
 > pipeline described under [Gazebo backend](#gazebo-backend-gazebo-harmonic-ros2)
 > below (`training/launch/gazebo_rl.launch.py`), which uses real Go2 joint
 > names and `gz-sim JointPositionController` plugins instead of CHAMP.
+
+---
+
+## Locomotion Backends
+
+Three ways to make the Go2 walk, in increasing order of control sophistication:
+
+| Backend | Approach | Status |
+|---------|----------|--------|
+| Native gz-sim (`training/launch/gazebo_rl.launch.py`) | RL policy or IK trot, direct `JointPositionController` | Working (see [Gazebo backend](#gazebo-backend-gazebo-harmonic-ros2)) |
+| CHAMP (`ros2/champ_config`) | Kinematic gait engine | Wired for CHAMP's generic reference robot only, not Go2 (see note above) |
+| **Quad-SDK** (`ros2/quad_sdk`) | NMPC + global/local planner, real Go2 config shipped upstream | Vendored in this repo; needs a one-time local dependency build (below) |
+
+### Quad-SDK (NMPC locomotion)
+
+[Quad-SDK](https://github.com/robomechanics/quad-sdk) (CMU Robomechanics Lab) is vendored under `ros2/quad_sdk/` (planning/control/comms packages) and `ros2/quad_sdk_external/` (RBDL + IPOPT, the NMPC solver's dependencies). It ships Go2 as a first-class robot — real URDF, SDF, and pre-generated NMPC solver code (`nmpc_controller/src/gen/*_go2.cpp`) — plus terrain worlds (steps, gaps, slopes) under `ros2/quad_sdk/quad_simulator/quad_sim_scripts/worlds/`.
+
+Upstream targets **ROS2 Jazzy on Ubuntu 24.04**; this repo runs **Humble on Jammy**, so the vendored copy has been patched (`ros-jazzy-*` → `ros-humble-*` in `setup_deps.sh` scripts, `rosdep --rosdistro` flag) and the two hardcoded `/usr/local` paths in `nmpc_controller/CMakeLists.txt` / `local_planner/CMakeLists.txt` were made configurable via `-DQUADSDK_DEPS_PREFIX=...` so RBDL/IPOPT don't need a sudo install to `/usr/local`. The Gazebo side needs no porting — it targets `gz-sim8`, which is exactly the Harmonic version already installed here. Hardware-only pieces (`robot_driver`, `unitree_sdk2`, mocap) and non-Go2 robot meshes were left out to keep this focused and small.
+
+**One-time setup** (three steps, in order):
+
+```bash
+# 1. System packages (needs YOUR sudo password — run this yourself, not via an agent)
+./scripts/setup_quadsdk_apt_deps.sh
+
+# 2. RBDL + IPOPT, built into ros2/quad_sdk_external/local (no sudo)
+./scripts/build_quadsdk_local_libs.sh
+
+# 3. Build the ROS2 workspace, pointing nmpc_controller/local_planner at the local libs
+cd ros2
+colcon build --symlink-install --cmake-args -DQUADSDK_DEPS_PREFIX="$(pwd)/quad_sdk_external/local"
+source install/setup.bash
+cd ..
+```
+
+**Run it:**
+
+```bash
+# Terminal 1 — Gazebo + Go2
+./scripts/launch_quadsdk_go2.sh                  # world defaults to flat.sdf
+./scripts/launch_quadsdk_go2.sh step_20cm.sdf     # or any world under quad_sim_scripts/worlds/
+
+# Terminal 2 — planning stack (global/local planner + NMPC) with twist input
+source ros2/install/setup.bash
+source ros2/quad_sdk_external/setup_env.sh
+ros2 launch quad_utils quad_plan.py
+```
+
+> **Known gap:** the local dependency build (step 2) has not been verified to
+> completion in this environment — the IPOPT build compiles MUMPS/ASL from
+> source via `coinbrew` and can take a while on first run. RBDL builds cleanly
+> against the vendored `urdfparser` submodule. If `colcon build` fails on
+> `nmpc_controller` or `local_planner`, check that step 2 actually finished
+> and that `QUADSDK_DEPS_PREFIX` points at a directory containing
+> `include/coin-or` and `lib/libipopt.so`.
 
 ---
 

@@ -32,7 +32,7 @@ CALF_DEFAULT = np.array([-1.5, -1.5, -1.5, -1.5], dtype=np.float64)
 
 L1 = 0.213
 L2 = 0.213
-PZ_NOM = 0.221
+PZ_NOM = 0.306
 STRIDE_LEN = 0.06
 
 VX_MAX = 0.25

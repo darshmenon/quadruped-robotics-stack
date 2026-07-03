@@ -53,8 +53,10 @@ SETTLE_STEPS = 400  # sim steps at 200 Hz to let robot settle after spawn
 L1 = 0.213   # thigh link length (m)
 L2 = 0.213   # calf link length (m)
 
-# Foot depth below hip at nominal standing height (measured empirically)
-PZ_NOM = 0.221   # m, downward from hip to foot contact point
+# Foot depth below hip at nominal standing height — matches the leg extension
+# implied by THIGH_DEFAULT/CALF_DEFAULT via forward kinematics, so gait IK
+# doesn't snap the legs on the stand->walk transition.
+PZ_NOM = 0.306   # m, downward from hip to foot contact point
 
 STRIDE_LEN = 0.14   # m stride at maximum speed
 

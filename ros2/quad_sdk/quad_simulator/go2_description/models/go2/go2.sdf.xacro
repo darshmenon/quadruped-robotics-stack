@@ -1408,15 +1408,15 @@
       <parent>body</parent>
     </joint>
 
-    <!-- Setup ros control -->
+    <!-- Native gz-sim8 controller for Quad-SDK LegCommandArray messages.
+         Humble's packaged gz_ros2_control is an Ignition/Fortress plugin,
+         while this repo runs Gazebo Harmonic / gz-sim8. This direct system
+         plugin avoids that ABI mismatch and applies joint efforts in sim. -->
     <plugin
-        filename="libgz_ros2_control-system.so"
-        name="gz_ros2_control::GazeboSimROS2ControlPlugin">
-        <controlPeriod>0.001</controlPeriod>
+        filename="libquad_sim_effort_controller.so"
+        name="quad_sim_effort_controller">
+        <namespace>$(arg namespace)</namespace>
         <parameters>$(arg controller_config_path)</parameters>
-            <ros>
-              <namespace>$(arg namespace)</namespace>
-          </ros>
     </plugin>
 
     <!-- Pin the body at its spawn pose for hold_duration seconds so that

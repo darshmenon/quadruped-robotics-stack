@@ -67,6 +67,10 @@ add_library(quad_wheel_controller SHARED
   src/quad_wheel_controller_plugin.cpp
 )
 
+add_library(quad_sim_effort_controller SHARED
+  src/quad_sim_effort_controller_plugin.cpp
+)
+
 add_library(spawn_lock SHARED
   src/spawn_lock_plugin.cpp
 )
@@ -99,6 +103,11 @@ target_include_directories(quad_controller PUBLIC
 )
 
 target_include_directories(quad_wheel_controller PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+
+target_include_directories(quad_sim_effort_controller PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
@@ -155,6 +164,13 @@ ament_target_dependencies(quad_wheel_controller
   quad_utils
 )
 
+ament_target_dependencies(quad_sim_effort_controller
+  rclcpp
+  gz-sim8
+  gz-plugin2
+  angles
+  quad_msgs
+)
 
 pluginlib_export_plugin_description_file(controller_interface controller_plugin.xml)
 
@@ -163,6 +179,7 @@ install(TARGETS
   quad_wheel_ground_truth_estimator
   quad_controller
   quad_wheel_controller
+  quad_sim_effort_controller
   spawn_lock
   DESTINATION lib
 )

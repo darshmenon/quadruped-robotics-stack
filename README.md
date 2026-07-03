@@ -210,13 +210,13 @@ Three ways to make the Go2 walk, in increasing order of control sophistication:
 |---------|----------|--------|
 | Native gz-sim (`training/launch/gazebo_rl.launch.py`) | RL policy or IK trot, direct `JointPositionController` | Working (see [Gazebo backend](#gazebo-backend-gazebo-harmonic-ros2)) |
 | CHAMP (`ros2/champ_config`) | Kinematic gait engine | Wired for CHAMP's generic reference robot only, not Go2 (see note above) |
-| **Quad-SDK** (`ros2/quad_sdk`) | NMPC + global/local planner, real Go2 config shipped upstream | **WIP** — builds clean, spawns in Gazebo, blocked by Harmonic `gz_ros2_control` plugin mismatch |
+| **Quad-SDK** (`ros2/quad_sdk`) | NMPC + global/local planner, real Go2 config shipped upstream | **WIP** — builds clean, spawns in Gazebo Harmonic, native effort bridge starts; NMPC walking still needs validation |
 
 ### Quad-SDK (NMPC locomotion) — WIP
 
 [Quad-SDK](https://github.com/robomechanics/quad-sdk) is vendored in `ros2/quad_sdk/`. Its solver dependencies, RBDL and IPOPT, are built locally into `ros2/quad_sdk_external/`, so the Quad-SDK workspace does not need anything under `/usr/local`. The vendored tree includes Go2 URDF/SDF assets, terrain worlds, NMPC solver code, planners, `robot_driver`, and the Quad-SDK controller plugins.
 
-**Current status:** the Humble/Jammy port now builds and launches far enough to spawn Go2 in Gazebo Harmonic. It does **not** walk yet. The remaining blocker is the sim control backend: this machine's `ros-humble-gz-ros2-control` library is built as an Ignition/Fortress plugin (`IgnitionPluginHook`), but the launch runs Gazebo Harmonic / `gz-sim8`, which requires `GzPluginHook`. Gazebo therefore rejects `libgz_ros2_control-system.so`, the `/robot_1/controller_manager` service never appears, and the joint controller cannot start.
+**Current status:** the Humble/Jammy port builds and launches Go2 in Gazebo Harmonic. The old blocker from `ros-humble-gz-ros2-control` is bypassed for Go2 by a native gz-sim8 system plugin, `quad_sim_effort_controller`, which subscribes to `/robot_1/control/joint_command` and applies Quad-SDK joint efforts directly in Gazebo. This confirms the sim, `robot_driver`, bridges, ground-truth state, and effort bridge can start together. It does **not** prove NMPC walking yet; the next validation step is standing/walking with the planner and control-mode commands.
 
 Milestones:
 
@@ -225,7 +225,7 @@ Milestones:
 | Build all Quad-SDK packages | Done |
 | Launch Gazebo and spawn Go2 | Done |
 | Start `robot_driver` in sim | Done |
-| Load `gz_ros2_control` under Harmonic | Blocked |
+| Drive Go2 joints in Harmonic without `gz_ros2_control` | Done |
 | Walk with NMPC | Not yet |
 
 Porting fixes already applied:
@@ -236,6 +236,7 @@ Porting fixes already applied:
 - Timestamp arithmetic was updated to wrap message stamps in `rclcpp::Time`.
 - Humble-missing grid-map UI/filter components are not installed by the setup script and are optional at launch: `enable_grid_map_viz:=false` and `enable_grid_map_filters:=false` by default.
 - Gazebo sim defaults to `estimator:=none`; the sim path already consumes ground-truth `RobotState`, so the mocap-oriented complementary filter is not required for launch.
+- Go2 Gazebo Harmonic control uses `quad_sim_effort_controller` instead of `gz_ros2_control`; Humble's packaged `gz_ros2_control` plugin exports the older Ignition/Fortress hook and cannot load in `gz-sim8`.
 
 Useful smoke test:
 
@@ -248,7 +249,7 @@ ros2 launch quad_utils quad_gazebo.py gui:=false rviz:=false
 ' | tail -220
 ```
 
-Expected today: Go2 spawns, `robot_driver` logs `State estimator disabled (estimator_id='none')`, then Gazebo reports that `libgz_ros2_control-system.so` has no `GzPluginHook`. That is the next real fix needed before NMPC walking can be tested.
+Expected today: Go2 spawns, `robot_driver` logs `State estimator disabled (estimator_id='none')`, and Gazebo logs `QuadSimEffortController listening on '/robot_1/control/joint_command'`. You should not see the old `libgz_ros2_control-system.so` / `GzPluginHook` failure.
 
 **One-time setup** (three steps, in order):
 

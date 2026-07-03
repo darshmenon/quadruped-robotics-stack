@@ -205,6 +205,16 @@ def spawn_controller_broadcasters(context, *args, **kwargs):
     ]
 
 
+def maybe_spawn_controller_broadcasters(context, *args, **kwargs):
+    robot_type = LaunchConfiguration('robot_type').perform(context)
+    if robot_type == 'go2':
+        # Go2 on Gazebo Harmonic uses the native quad_sim_effort_controller
+        # SDF system plugin. Humble's gz_ros2_control package is built for
+        # Ignition/Fortress, so no /controller_manager service exists here.
+        return []
+    return spawn_controller_broadcasters(context, *args, **kwargs)
+
+
 
 def launch_robot_driver(context, *args, **kwargs):
     namespace = LaunchConfiguration('namespace').perform(context)
@@ -399,7 +409,7 @@ def generate_launch_description():
         OpaqueFunction(function=spawn_sdf_model),
         OpaqueFunction(function=harmonic_ros_bridge),
         OpaqueFunction(function=access_terrain_map),
-        OpaqueFunction(function=spawn_controller_broadcasters),
+        OpaqueFunction(function=maybe_spawn_controller_broadcasters),
         OpaqueFunction(function=launch_robot_driver),
         OpaqueFunction(function=launch_contact_state_publisher),
         OpaqueFunction(function= launch_visualization_plugins)

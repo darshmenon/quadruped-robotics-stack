@@ -1,4 +1,4 @@
-# quadruped-dog-rl
+# quadruped-locomotion-stack
 
 ![ROS2](https://img.shields.io/badge/ROS2-Humble-blue.svg)
 ![Gazebo](https://img.shields.io/badge/Gazebo-Harmonic-orange.svg)
@@ -36,7 +36,7 @@ Supports: Unitree Go2, Boston Dynamics Spot, MIT Mini Cheetah, ANYmal B/C, Mini 
 ## Repository Structure
 
 ```
-quadruped-dog-rl/
+quadruped-locomotion-stack/
 ├── urdf/                    # Robot URDF and mesh files
 │   ├── go1_config/          # Unitree Go1
 │   ├── go2_unitree/         # Unitree Go2 (with DAE meshes)

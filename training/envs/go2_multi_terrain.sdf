@@ -25,7 +25,7 @@
     </light>
 
     <!-- Flat spawn/reset area at the origin. stand_go2_gz.py hardcodes the
-         fall-recovery reset pose to (0,0,0.45) in this world, so the origin
+         fall-recovery reset pose to (0,0,0.32) in this world, so the origin
          must stay flat ground. All terrain features below are offset along
          +X, away from the origin. -->
     <model name="ground_plane">

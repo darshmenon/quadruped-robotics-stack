@@ -144,7 +144,7 @@ class StandPublisher(Node):
             "/world/go2_rl/set_pose",
             "gz.msgs.Pose",
             "gz.msgs.Boolean",
-            "name: 'go2' position: {x: 0 y: 0 z: 0.45} orientation: {w: 1 x: 0 y: 0 z: 0}",
+            "name: 'go2' position: {x: 0 y: 0 z: 0.32} orientation: {w: 1 x: 0 y: 0 z: 0}",
         )
         for _ in range(25):
             self.publish_once()
@@ -163,13 +163,16 @@ class StandPublisher(Node):
             return False
         self._last_pose_check_time = now
 
-        result = subprocess.run(
-            ["gz", "topic", "-e", "-n", "1", "-t", "/world/go2_rl/pose/info"],
-            check=False,
-            text=True,
-            capture_output=True,
-            timeout=1.0,
-        )
+        try:
+            result = subprocess.run(
+                ["gz", "topic", "-e", "-n", "1", "-t", "/world/go2_rl/pose/info"],
+                check=False,
+                text=True,
+                capture_output=True,
+                timeout=1.0,
+            )
+        except subprocess.TimeoutExpired:
+            return False
         if result.returncode != 0:
             return False
 
@@ -229,7 +232,7 @@ def main():
             "/world/go2_rl/set_pose",
             "gz.msgs.Pose",
             "gz.msgs.Boolean",
-            "name: 'go2' position: {x: 0 y: 0 z: 0.45} orientation: {w: 1 x: 0 y: 0 z: 0}",
+            "name: 'go2' position: {x: 0 y: 0 z: 0.32} orientation: {w: 1 x: 0 y: 0 z: 0}",
         )
 
     rclpy.init()

@@ -192,13 +192,20 @@ source ros2/install/setup.bash
 ros2 launch champ_teleop teleop.launch.py
 ```
 
-> **Note:** `champ_config` in this repo is still set up for CHAMP's own
-> generic reference robot (`champ_description/urdf/champ.urdf.xacro`, joint
-> names like `lf_hip_joint`) and targets Gazebo Classic — it does **not**
-> spawn the Go2. The Go2's actual walking controller is the native gz-sim
-> pipeline described under [Gazebo backend](#gazebo-backend-gazebo-harmonic-ros2)
-> below (`training/launch/gazebo_rl.launch.py`), which uses real Go2 joint
-> names and `gz-sim JointPositionController` plugins instead of CHAMP.
+> **Note:** `champ_config` (`joints.yaml`, `links.yaml`, `gait.yaml`) is now
+> wired to Go2's real joint/link names (`FL_hip_joint`, `FL_thigh`, ...,
+> `nominal_height: 0.32`) and `gazebo.launch.py` points at
+> `urdf/go2_unitree/urdf/go2_gz.urdf.xacro` instead of the generic reference
+> robot. It still cannot be launched end-to-end in this repo: `champ_gazebo`
+> depends on Gazebo Classic (`gazebo_ros`, `gazebo_ros2_control`), which isn't
+> installed and is a different physics stack from this repo's Gazebo
+> Harmonic/gz-sim8 setup used everywhere else. Bridging CHAMP's gait engine
+> into the native gz-sim pipeline (like the Quad-SDK effort controller does)
+> instead of `champ_gazebo` would be the next step. The Go2's actual working
+> walking controller is the native gz-sim pipeline described under
+> [Gazebo backend](#gazebo-backend-gazebo-harmonic-ros2) below
+> (`training/launch/gazebo_rl.launch.py`), which uses real Go2 joint names and
+> `gz-sim JointPositionController` plugins instead of CHAMP.
 
 ---
 
@@ -326,6 +333,14 @@ pip install -r requirements.txt
 # Resume from checkpoint (VecNormalize stats auto-loaded from checkpoints/ dir)
 ./scripts/train_policy.sh mujoco --resume training/logs/mujoco/checkpoints/go2_mujoco_500000_steps.zip
 ```
+
+Smoke-tested end to end (4k steps, 2 envs) — the pipeline trains cleanly and logs all
+8 reward terms. On some machines, building the PPO/Adam optimizer makes `torch`
+lazily import `triton` (for `torch._dynamo`), and a broken local
+triton/CUDA-driver combo can segfault right there. `train_mujoco.py`,
+`train_gazebo.py`, `play_policy.py`, and `teleop_mujoco.py` all block that
+import (`sys.modules.setdefault("triton", None)`) before pulling in
+`stable_baselines3`, since none of them use `torch.compile`.
 
 Output: `training/logs/mujoco/` — checkpoints + `vecnorm_<steps>_steps.pkl` every 50k steps.
 

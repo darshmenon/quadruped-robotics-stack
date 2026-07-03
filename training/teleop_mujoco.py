@@ -20,6 +20,10 @@ import os
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+# torch lazily imports triton when SB3 builds the Adam optimizer; a broken
+# local triton/CUDA-driver combo segfaults there, so block the import.
+sys.modules.setdefault("triton", None)
+
 import numpy as np
 import mujoco
 import mujoco.viewer

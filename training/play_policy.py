@@ -19,6 +19,10 @@ import os
 import sys
 import time
 
+# torch lazily imports triton when SB3 builds the Adam optimizer; a broken
+# local triton/CUDA-driver combo segfaults there, so block the import.
+sys.modules.setdefault("triton", None)
+
 import cv2
 import mujoco
 import numpy as np

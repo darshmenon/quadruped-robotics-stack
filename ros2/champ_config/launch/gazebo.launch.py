@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import launch_ros
 from ament_index_python.packages import get_package_share_directory
@@ -33,7 +34,8 @@ def generate_launch_description():
     )
     gait_config = os.path.join(config_pkg_share, "config/gait/gait.yaml")
     links_config = os.path.join(config_pkg_share, "config/links/links.yaml")
-    default_model_path = os.path.join(descr_pkg_share, "urdf/champ.urdf.xacro")
+    repo_root = Path(__file__).resolve().parents[3]
+    default_model_path = str(repo_root / "urdf/go2_unitree/urdf/go2_gz.urdf.xacro")
     default_world_path = os.path.join(config_pkg_share, "worlds/outdoor.world")
 
     declare_use_sim_time = DeclareLaunchArgument(
@@ -91,6 +93,7 @@ def generate_launch_description():
             "hardware_connected": "false",
             "publish_foot_contacts": "false",
             "close_loop_odom": "true",
+            "base_link_frame": "base",
         }.items(),
     )
 

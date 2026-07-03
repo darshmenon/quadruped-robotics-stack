@@ -14,6 +14,10 @@ import sys
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 sys.path.insert(0, os.path.dirname(__file__))
 
+# torch lazily imports triton when SB3 builds the Adam optimizer; a broken
+# local triton/CUDA-driver combo segfaults there, so block the import.
+sys.modules.setdefault("triton", None)
+
 import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize

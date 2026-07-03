@@ -63,8 +63,10 @@ GO2_STAND = {
 COMMAND_TIMEOUT_S = 0.35
 ROLL_KP = 0.18
 PITCH_KP = 0.16
+ROLL_KD = 0.0
+PITCH_KD = 0.0
 POSE_CHECK_PERIOD_S = 0.2
-RESET_COOLDOWN_S = 0.75
+RESET_COOLDOWN_S = 1.0
 
 
 class ChampToGo2Gazebo(Node):
@@ -76,7 +78,7 @@ class ChampToGo2Gazebo(Node):
         self.declare_parameter("map_neutral_to_stand", True)
         self.declare_parameter("delta_scale", 0.35)
         self.declare_parameter("enable_idle_recovery", True)
-        self.declare_parameter("max_idle_drift_m", 0.08)
+        self.declare_parameter("max_idle_drift_m", 0.12)
         self.declare_parameter("min_base_z", 0.20)
         self.declare_parameter("max_tilt_rad", 0.65)
 
@@ -96,6 +98,8 @@ class ChampToGo2Gazebo(Node):
         self._cmd = np.zeros(3, dtype=np.float64)
         self._roll = 0.0
         self._pitch = 0.0
+        self._roll_rate = 0.0
+        self._pitch_rate = 0.0
         self._latest_champ_targets = dict(CHAMP_NEUTRAL)
         self._pubs = {
             joint: self.create_publisher(Float64, f"{output_prefix}/{joint}", 10)
@@ -127,10 +131,17 @@ class ChampToGo2Gazebo(Node):
         sinp = 2.0 * (q.w * q.y - q.z * q.x)
         self._pitch = float(math.asin(max(-1.0, min(1.0, sinp))))
 
+        self._roll_rate = float(msg.angular_velocity.x)
+        self._pitch_rate = float(msg.angular_velocity.y)
+
     def _apply_posture_feedback(self, targets):
         corrected = dict(targets)
-        roll_corr = float(np.clip(ROLL_KP * self._roll, -0.10, 0.10))
-        pitch_corr = float(np.clip(PITCH_KP * self._pitch, -0.12, 0.12))
+        roll_corr = float(np.clip(
+            ROLL_KP * self._roll + ROLL_KD * self._roll_rate, -0.10, 0.10
+        ))
+        pitch_corr = float(np.clip(
+            PITCH_KP * self._pitch + PITCH_KD * self._pitch_rate, -0.12, 0.12
+        ))
 
         corrected["FL_hip_joint"] -= roll_corr
         corrected["RL_hip_joint"] -= roll_corr

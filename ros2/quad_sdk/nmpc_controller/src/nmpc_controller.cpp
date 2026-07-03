@@ -246,9 +246,10 @@ NMPCController::NMPCController(rclcpp::Node::SharedPtr node, int robot_id,
   app_ = IpoptApplicationFactory();
 
   app_->Options()->SetStringValue("print_timing_statistics", "no");
-  app_->Options()->SetStringValue("linear_solver", "ma27");
+  // ma27/ma57 are HSL solvers requiring a licensed download we don't have;
+  // this build's IPOPT only has the open-source mumps linear solver.
+  app_->Options()->SetStringValue("linear_solver", "mumps");
   app_->Options()->SetIntegerValue("print_level", 0);  // default=0, verbose=5
-  app_->Options()->SetNumericValue("ma57_pre_alloc", 1.5);
   app_->Options()->SetStringValue("fixed_variable_treatment",
                                   "make_parameter_nodual");
   app_->Options()->SetNumericValue("tol", 1e-3);
@@ -259,8 +260,8 @@ NMPCController::NMPCController(rclcpp::Node::SharedPtr node, int robot_id,
   app_->Options()->SetNumericValue("warm_start_slack_bound_push", 1e-6);
   app_->Options()->SetNumericValue("warm_start_mult_bound_push", 1e-6);
 
-  app_->Options()->SetNumericValue("max_wall_time", 4.0 * dt_);
-  app_->Options()->SetNumericValue("max_cpu_time", 4.0 * dt_);
+  app_->Options()->SetNumericValue("max_wall_time", 100.0 * dt_);
+  app_->Options()->SetNumericValue("max_cpu_time", 100.0 * dt_);
 
   ApplicationReturnStatus status;
   status = app_->Initialize();

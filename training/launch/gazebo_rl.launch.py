@@ -84,7 +84,7 @@ def _launch_setup(context, *args, **kwargs):
         arguments=[
             "-name", "go2",
             "-file", str(STAND_SDF),
-            "-x", "0", "-y", "0", "-z", "0.45",
+            "-x", "0", "-y", "0", "-z", "0.32",
         ],
         output="screen",
     )
@@ -149,6 +149,11 @@ def _launch_setup(context, *args, **kwargs):
         # not-yet-settled world and it faceplants immediately.
         TimerAction(period=5.0, actions=[spawn]),
         bridge,
-        TimerAction(period=7.0, actions=[odom]),
-        TimerAction(period=7.0, actions=[stand]),
+        # Extra buffer past spawn before touching the entity: the heavier
+        # multi-terrain world can still be inserting the ~65 static terrain
+        # models into the ECS a couple seconds after "OK creation of entity"
+        # comes back, so an early set_pose call (from --reset-upright) can
+        # silently target a not-yet-registered entity (id:0).
+        TimerAction(period=9.0, actions=[odom]),
+        TimerAction(period=9.0, actions=[stand]),
     ]

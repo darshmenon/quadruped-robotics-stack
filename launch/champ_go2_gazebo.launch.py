@@ -89,5 +89,7 @@ def generate_launch_description():
             default_value=str(REPO / "training" / "envs" / "go2_gz_world.sdf"),
         ),
         gazebo,
-        TimerAction(period=10.0, actions=[champ, adapter]),
+        # stand now runs at t=9s for 2s (see training/launch/gazebo_rl.launch.py),
+        # so wait past t=11s before handing control to CHAMP.
+        TimerAction(period=13.0, actions=[champ, adapter]),
     ])

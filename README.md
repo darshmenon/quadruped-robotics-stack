@@ -281,7 +281,7 @@ ros2 launch training/launch/gazebo_rl.launch.py world:="$(pwd)/training/envs/go2
 ```
 
 Terrain zones, all offset along +X from the flat origin (the fall-recovery
-reset pose is hardcoded to `(0,0,0.45)`, so the origin has to stay flat):
+reset pose is hardcoded to `(0,0,0.32)`, so the origin has to stay flat):
 
 | Zone | X range | Description |
 |------|---------|--------------|

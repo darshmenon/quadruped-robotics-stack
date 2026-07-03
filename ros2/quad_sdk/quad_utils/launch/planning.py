@@ -7,6 +7,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node, PushRosNamespace
 from launch_ros.substitutions import FindPackageShare
 from launch_ros.parameter_descriptions import ParameterValue
+from ament_index_python.packages import get_package_share_directory, PackageNotFoundError
 import json
 import os
 import xacro
@@ -214,7 +215,12 @@ def launch_local_planner(context, *args, **kwargs):
     ]
 
 def launch_body_force_estimator(context, *args, **kwargs):
-    body_force_estimator_pkg = FindPackageShare('body_force_estimator') 
+    try:
+        body_force_estimator_pkg = get_package_share_directory('body_force_estimator')
+    except PackageNotFoundError:
+        print("[planning.py] body_force_estimator package not found; skipping optional node")
+        return []
+
     body_force_estimator_param_file = PathJoinSubstitution([body_force_estimator_pkg, 'config', 'body_force_estimator.yaml'])
     body_force_estimator_topics_file = PathJoinSubstitution([body_force_estimator_pkg, 'config', 'body_force_estimator_topics.yaml'])
 

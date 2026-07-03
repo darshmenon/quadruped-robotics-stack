@@ -225,6 +225,27 @@ class quadNLP : public TNLP {
   /// Terrain map
   grid_map::GridMap terrain_;
 
+  /// Height at position, falling back from the grid_map_filters-computed
+  /// "z_inpainted" layer to the always-present raw "z" layer -- Humble
+  /// doesn't have grid_map_filters available (see mapping.py).
+  double terrainHeightAtPosition(const Eigen::Vector2d& pos) const {
+    const std::string layer =
+        terrain_.exists("z_inpainted") ? "z_inpainted" : "z";
+    return terrain_.atPosition(layer, pos, interp_type_);
+  }
+
+  /// Surface normal at position, falling back to a flat upward normal when
+  /// grid_map_filters's normal_vectors_* layers aren't available.
+  Eigen::Vector3d terrainNormalAtPosition(const Eigen::Vector2d& pos) const {
+    if (!terrain_.exists("normal_vectors_x")) {
+      return Eigen::Vector3d(0.0, 0.0, 1.0);
+    }
+    return Eigen::Vector3d(
+        terrain_.atPosition("normal_vectors_x", pos, interp_type_),
+        terrain_.atPosition("normal_vectors_y", pos, interp_type_),
+        terrain_.atPosition("normal_vectors_z", pos, interp_type_));
+  }
+
   Eigen::VectorXd g_min_complex_soft_, g_max_complex_soft_;
 
   // Ground height structure for the height bounds

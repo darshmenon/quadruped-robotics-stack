@@ -156,6 +156,8 @@ void FastTerrainMap::loadStep(double height) {
 }
 
 void FastTerrainMap::loadDataFromGridMap(const grid_map::GridMap map) {
+  const std::string height_layer = map.exists("z_inpainted") ? "z_inpainted" : "z";
+
   // Initialize the data structures for the map
   int x_size = map.getSize()(0);
   int y_size = map.getSize()(1);
@@ -188,7 +190,7 @@ void FastTerrainMap::loadDataFromGridMap(const grid_map::GridMap map) {
   for (int i = 0; i < x_size; i++) {
     for (int j = 0; j < y_size; j++) {
       grid_map::Index index = {(x_size - 1) - i, (y_size - 1) - j};
-      double height = (double)map.at("z_inpainted", index);
+      double height = (double)map.at(height_layer, index);
       z_data[i].push_back(height);
 
       if (map.exists("normal_vectors_x") == true) {

@@ -1,6 +1,6 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch.substitutions import PathJoinSubstitution
@@ -103,6 +103,15 @@ def generate_launch_description():
         
     )
 
+    raw_map_relay = Node(
+        package='topic_tools',
+        executable='relay',
+        name='terrain_map_raw_relay',
+        arguments=['terrain_map_raw', 'terrain_map'],
+        parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
+        condition=UnlessCondition(LaunchConfiguration('enable_grid_map_filters'))
+    )
+
     static_tf = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
@@ -118,6 +127,7 @@ def generate_launch_description():
             mesh_to_grid_group,
             grid_map_visualization,
             grid_map_filter_node,
+            raw_map_relay,
             static_tf
         ]
     )

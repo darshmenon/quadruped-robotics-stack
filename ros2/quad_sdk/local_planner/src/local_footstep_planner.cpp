@@ -59,6 +59,15 @@ void LocalFootstepPlanner::updateMap(const grid_map::GridMap& terrain) {
   terrain_grid_ = terrain;
 }
 
+namespace {
+std::string heightLayer(const grid_map::GridMap& terrain) {
+  if (terrain.exists("z_inpainted")) {
+    return "z_inpainted";
+  }
+  return "z";
+}
+}  // namespace
+
 void LocalFootstepPlanner::getFootPositionsBodyFrame(
     const Eigen::VectorXd& body_plan,
     const Eigen::VectorXd& foot_positions_world,
@@ -247,7 +256,8 @@ void LocalFootstepPlanner::computeFootPlan(
         double body_height_touchdown =
             std::max(body_plan(i, 2) -
                          terrain_grid_.atPosition(
-                             "z_inpainted", body_plan.row(i).segment<2>(0)),
+                             heightLayer(terrain_grid_),
+                             body_plan.row(i).segment<2>(0)),
                      0.0);
         // Ref: Highly Dynamic Quadruped Locomotion via Whole-Body Impulse
         // Control and Model Predictive Control (Centrifugal force and capture
@@ -280,7 +290,7 @@ void LocalFootstepPlanner::computeFootPlan(
         // Toe has 20cm radius so we need to shift the foot height from terrain
         foot_position_nominal.z() =
             terrain_grid_.atPosition(
-                "z_inpainted",
+                heightLayer(terrain_grid_),
                 terrain_grid_.getClosestPositionInMap(foot_position_grid_map),
                 grid_map::InterpolationMethods::INTER_NEAREST) +
             toe_radius_;
@@ -407,7 +417,7 @@ void LocalFootstepPlanner::computeFootPlan(
             }
             foot_position_next.z() =
                 terrain_grid_.atPosition(
-                    "z_inpainted", foot_position_next_grid_map,
+                    heightLayer(terrain_grid_), foot_position_next_grid_map,
                     grid_map::InterpolationMethods::INTER_NEAREST) +
                 toe_radius_;
           } else {
@@ -596,7 +606,10 @@ Eigen::Vector3d LocalFootstepPlanner::getNearestValidFoothold(
     }
 
     // Get objective function and kinematic cost
-    double traversability = terrain_grid_.atPosition(obj_fun_layer_, pos_valid);
+    double traversability =
+        terrain_grid_.exists(obj_fun_layer_)
+            ? terrain_grid_.atPosition(obj_fun_layer_, pos_valid)
+            : 1.0;
     double kin_cost =
         (pos_valid - foot_position.head<2>()).norm() +
         0.5 * (pos_valid - foot_position_prev_solve.head<2>()).norm();
@@ -617,7 +630,8 @@ Eigen::Vector3d LocalFootstepPlanner::getNearestValidFoothold(
         "No valid foothold found in radius of nominal, returning nominal");
   }
   foot_position_best.z() =
-      terrain_grid_.atPosition("z_inpainted", foot_position_best.head<2>(),
+      terrain_grid_.atPosition(heightLayer(terrain_grid_),
+                               foot_position_best.head<2>(),
                                grid_map::InterpolationMethods::INTER_LINEAR) +
       toe_radius_;
   return foot_position_best;

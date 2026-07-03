@@ -632,14 +632,8 @@ Eigen::VectorXd quadNLP::eval_g_single_complex_fe(int i,
     for (int j = 0; j < num_feet_; j++) {
       Eigen::Vector3d foot_pos = x1.segment(n_body_ + 3 * j, 3);
 
-      pk(38 + j) =
-          terrain_.atPosition("z_inpainted", foot_pos.head<2>(), interp_type_);
-      pk(42 + 3 * j) = terrain_.atPosition("normal_vectors_x",
-                                           foot_pos.head<2>(), interp_type_);
-      pk(43 + 3 * j) = terrain_.atPosition("normal_vectors_y",
-                                           foot_pos.head<2>(), interp_type_);
-      pk(44 + 3 * j) = terrain_.atPosition("normal_vectors_z",
-                                           foot_pos.head<2>(), interp_type_);
+      pk(38 + j) = terrainHeightAtPosition(foot_pos.head<2>());
+      pk.segment<3>(42 + 3 * j) = terrainNormalAtPosition(foot_pos.head<2>());
     }
   } else {
     pk.segment(38, 4).fill(-10);
@@ -698,14 +692,8 @@ bool quadNLP::eval_g(Index n, const Number* x, bool new_x, Index m, Number* g) {
         // Eigen::Vector3d foot_pos =
         //     get_primal_foot_state_var(w, i + 1).segment(3 * j, 3);
 
-        pk(38 + j) = terrain_.atPosition("z_inpainted", foot_pos.head<2>(),
-                                         interp_type_);
-        pk(42 + 3 * j) = terrain_.atPosition("normal_vectors_x",
-                                             foot_pos.head<2>(), interp_type_);
-        pk(43 + 3 * j) = terrain_.atPosition("normal_vectors_y",
-                                             foot_pos.head<2>(), interp_type_);
-        pk(44 + 3 * j) = terrain_.atPosition("normal_vectors_z",
-                                             foot_pos.head<2>(), interp_type_);
+        pk(38 + j) = terrainHeightAtPosition(foot_pos.head<2>());
+        pk.segment<3>(42 + 3 * j) = terrainNormalAtPosition(foot_pos.head<2>());
       }
     } else {
       pk.segment(38, 4).fill(-10);
@@ -816,14 +804,9 @@ bool quadNLP::eval_jac_g(Index n, const Number* x, bool new_x, Index m,
           //   Eigen::Vector3d foot_pos =
           //       get_primal_foot_state_var(w, i + 1).segment(3 * j, 3);
 
-          pk(38 + j) = terrain_.atPosition("z_inpainted", foot_pos.head<2>(),
-                                           interp_type_);
-          pk(42 + 3 * j) = terrain_.atPosition(
-              "normal_vectors_x", foot_pos.head<2>(), interp_type_);
-          pk(43 + 3 * j) = terrain_.atPosition(
-              "normal_vectors_y", foot_pos.head<2>(), interp_type_);
-          pk(44 + 3 * j) = terrain_.atPosition(
-              "normal_vectors_z", foot_pos.head<2>(), interp_type_);
+          pk(38 + j) = terrainHeightAtPosition(foot_pos.head<2>());
+          pk.segment<3>(42 + 3 * j) =
+              terrainNormalAtPosition(foot_pos.head<2>());
         }
       } else {
         pk.segment(38, 4).fill(-10);
@@ -1157,14 +1140,9 @@ bool quadNLP::eval_h(Index n, const Number* x, bool new_x, Number obj_factor,
           //   Eigen::Vector3d foot_pos =
           //       get_primal_foot_state_var(w, i + 1).segment(3 * j, 3);
 
-          pk(38 + j) = terrain_.atPosition("z_inpainted", foot_pos.head<2>(),
-                                           interp_type_);
-          pk(42 + 3 * j) = terrain_.atPosition(
-              "normal_vectors_x", foot_pos.head<2>(), interp_type_);
-          pk(43 + 3 * j) = terrain_.atPosition(
-              "normal_vectors_y", foot_pos.head<2>(), interp_type_);
-          pk(44 + 3 * j) = terrain_.atPosition(
-              "normal_vectors_z", foot_pos.head<2>(), interp_type_);
+          pk(38 + j) = terrainHeightAtPosition(foot_pos.head<2>());
+          pk.segment<3>(42 + 3 * j) =
+              terrainNormalAtPosition(foot_pos.head<2>());
         }
       } else {
         pk.segment(38, 4).fill(-10);

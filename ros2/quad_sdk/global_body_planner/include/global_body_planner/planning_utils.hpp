@@ -573,6 +573,12 @@ inline double getTerrainZFiltered(const Eigen::Vector3d& pos,
  */
 inline double getTraversability(const Eigen::Vector3d& pos,
                                 const PlannerConfig& planner_config) {
+  // "traversability" is computed by grid_map_filters, which isn't available
+  // on this ROS2 Humble install (see mapping.py's enable_grid_map_filters).
+  // Without it, treat everywhere as fully traversable rather than crashing.
+  if (!planner_config.terrain_grid_map.exists("traversability")) {
+    return 1.0;
+  }
   return planner_config.terrain_grid_map.atPosition("traversability",
                                                     pos.head<2>(), INTER_TYPE);
 }

@@ -186,8 +186,12 @@ class LocalFootstepPlanner {
 
   inline double getTerrainHeight(double x, double y) {
     grid_map::Position pos = {x, y};
+    const std::string height_layer =
+        terrain_grid_.exists("z_smooth")
+            ? "z_smooth"
+            : (terrain_grid_.exists("z_inpainted") ? "z_inpainted" : "z");
     double height = this->terrain_grid_.atPosition(
-        "z_smooth", terrain_grid_.getClosestPositionInMap(pos),
+        height_layer, terrain_grid_.getClosestPositionInMap(pos),
         grid_map::InterpolationMethods::INTER_LINEAR);
     return (height);
   }

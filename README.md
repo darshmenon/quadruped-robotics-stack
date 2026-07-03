@@ -214,9 +214,11 @@ Three ways to make the Go2 walk, in increasing order of control sophistication:
 
 ### Quad-SDK (NMPC locomotion) — WIP
 
-[Quad-SDK](https://github.com/robomechanics/quad-sdk) is vendored in `ros2/quad_sdk/`. Its solver dependencies, RBDL and IPOPT, are built locally into `ros2/quad_sdk_external/`, so the Quad-SDK workspace does not need anything under `/usr/local`. The vendored tree includes Go2 URDF/SDF assets, terrain worlds, NMPC solver code, planners, `robot_driver`, and the Quad-SDK controller plugins.
+[Quad-SDK](https://github.com/robomechanics/quad-sdk) is vendored in `ros2/quad_sdk/`. Its solver dependencies, RBDL and IPOPT, are built locally into `ros2/quad_sdk_external/`, so the Quad-SDK workspace does not need anything under `/usr/local`. The vendored tree includes Go2 URDF/SDF assets, terrain worlds, NMPC solver code, planners, `robot_driver`, and the Quad-SDK controller plugins. `robot_driver` (the sim/hardware state-estimator and control-interface layer) pulls in two prebuilt hardware SDK binary blobs under `ros2/quad_sdk/external/` (`unitree_sdk2`, `mblink`) that it links unconditionally even in sim mode — no build step for those, just vendored `.a`/`.so` files.
 
-**Current status:** the Humble/Jammy port builds and launches Go2 in Gazebo Harmonic. The old blocker from `ros-humble-gz-ros2-control` is bypassed for Go2 by a native gz-sim8 system plugin, `quad_sim_effort_controller`, which subscribes to `/robot_1/control/joint_command` and applies Quad-SDK joint efforts directly in Gazebo. This confirms the sim, `robot_driver`, bridges, ground-truth state, and effort bridge can start together. It does **not** prove NMPC walking yet; the next validation step is standing/walking with the planner and control-mode commands.
+**Current status:** the Humble/Jammy port builds and launches Go2 in Gazebo Harmonic. The old blocker from `ros-humble-gz-ros2-control` is bypassed for Go2 by a native gz-sim8 system plugin, `quad_sim_effort_controller`, which subscribes to `/robot_1/control/joint_command` and applies Quad-SDK joint efforts directly in Gazebo. This confirms the sim, `robot_driver`, bridges, ground-truth state, and effort bridge can start together.
+
+`global_body_planner_node` now runs indefinitely without crashing (previously aborted within seconds on `GridMap::at(...): No map layer 'z_inpainted' available` — see fixes below). It currently loops on `WARN: Invalid start state, exiting`: Go2 spawns and holds a low **sit** pose (`sit_angles` in `controller_plugin.cpp`'s bootstrap PD hold, body height ~0.08m) rather than a standing pose, and the planner's `isValidState` rejects any body height below `h_min` ground clearance. Publishing `ros2 topic pub /robot_1/control/mode std_msgs/UInt8 "data: 1"` (upstream's documented "stand" trigger) did **not** raise it in a quick test — standing likely needs more of the stack driving it together (planner + NMPC issuing real joint commands) rather than `robot_driver` alone. This is a locomotion/control-tuning question now, not a crash — a genuinely different, more open-ended class of work than the porting fixes below.
 
 Milestones:
 
@@ -226,6 +228,9 @@ Milestones:
 | Launch Gazebo and spawn Go2 | Done |
 | Start `robot_driver` in sim | Done |
 | Drive Go2 joints in Harmonic without `gz_ros2_control` | Done |
+| Start NMPC planner launch without crashing | Done |
+| Robot reaches a valid standing pose | Not yet — currently stuck at sit height |
+| Publish `/robot_1/local_plan` reliably | Blocked on the above |
 | Walk with NMPC | Not yet |
 
 Porting fixes already applied:
@@ -237,6 +242,11 @@ Porting fixes already applied:
 - Humble-missing grid-map UI/filter components are not installed by the setup script and are optional at launch: `enable_grid_map_viz:=false` and `enable_grid_map_filters:=false` by default.
 - Gazebo sim defaults to `estimator:=none`; the sim path already consumes ground-truth `RobotState`, so the mocap-oriented complementary filter is not required for launch.
 - Go2 Gazebo Harmonic control uses `quad_sim_effort_controller` instead of `gz_ros2_control`; Humble's packaged `gz_ros2_control` plugin exports the older Ignition/Fortress hook and cannot load in `gz-sim8`.
+- `body_force_estimator` is treated as optional in `planning.py`; this repo does not currently vendor that package.
+- When Humble-missing `grid_map_filters` are disabled, `mapping.py` relays raw mesh terrain to the filtered terrain topic names expected by `robot_bringup` and `local_planner`.
+- Local terrain consumers tolerate raw mesh maps that only contain the `z` layer instead of filtered `z_inpainted`, `z_smooth`, or traversability layers: `global_body_planner`'s `isTraversable`/`getTraversability` fall back to fully-traversable when the `traversability` layer doesn't exist, and `nmpc_controller`'s `quad_nlp.cpp` (4 call sites) now goes through `terrainHeightAtPosition`/`terrainNormalAtPosition` helpers instead of hardcoding `z_inpainted`/`normal_vectors_*` — both were crashing with `GridMap::at(...): No map layer ... available` before this.
+- `quad_utils` builds as a **static** library (`libquad_utils.a`); a source-only change there needs a full `colcon build` (not `--packages-select quad_utils`) to actually relink the ~6 downstream packages that statically link it, or they'll keep running the stale old code despite quad_utils itself rebuilding successfully.
+- `robot_driver` and the packages it needs were vendored (it's not hardware-only, despite the name — it's also the sim-mode state estimator/control interface); it needed the same `pinocchio::pinocchio` direct-link fix as the other 5 packages.
 
 Useful smoke test:
 

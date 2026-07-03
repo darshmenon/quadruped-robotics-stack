@@ -373,7 +373,9 @@ bool NMPCController::computePlan(
     mynlp_->mu0_ = 1e-1;
     mynlp_->warm_start_ = false;
     require_init_ = true;
-    RCLCPP_WARN_STREAM(node_->get_logger(), "NMPC solving fail");
+    RCLCPP_WARN_STREAM(node_->get_logger(),
+                       "NMPC solving fail, ApplicationReturnStatus = "
+                           << static_cast<int>(status));
     RCLCPP_WARN_STREAM(node_->get_logger(),
                        "Fail time = " << node_->get_clock()->now().seconds(););
     return false;

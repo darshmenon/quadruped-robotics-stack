@@ -217,9 +217,9 @@ Three ways to make the Go2 walk, in increasing order of control sophistication:
 |---------|----------|--------|
 | Native gz-sim (`training/launch/gazebo_rl.launch.py`) | RL policy or IK trot, direct `JointPositionController` | Working (see [Gazebo backend](#gazebo-backend-gazebo-harmonic-ros2)) |
 | CHAMP (`ros2/champ_config`) | Kinematic gait engine | Wired for CHAMP's generic reference robot only, not Go2 (see note above) |
-| **Quad-SDK** (`ros2/quad_sdk`) | NMPC + global/local planner, real Go2 config shipped upstream | **WIP** — stands, path-plans; NMPC solver runs but fails to converge (see below) |
+| **Quad-SDK** (`ros2/quad_sdk`) | NMPC + global/local planner, real Go2 config shipped upstream | **Walking** — verified end-to-end: stands, plans, NMPC converges, Go2 walks to a goal (see below) |
 
-### Quad-SDK (NMPC locomotion) — WIP
+### Quad-SDK (NMPC locomotion) — Go2 walks
 
 [Quad-SDK](https://github.com/robomechanics/quad-sdk) is vendored in `ros2/quad_sdk/`. Its solver dependencies, RBDL and IPOPT, are built locally into `ros2/quad_sdk_external/`, so the Quad-SDK workspace does not need anything under `/usr/local`. The vendored tree includes Go2 URDF/SDF assets, terrain worlds, NMPC solver code, planners, `robot_driver`, and the Quad-SDK controller plugins. `robot_driver` (the sim/hardware state-estimator and control-interface layer) pulls in two prebuilt hardware SDK binary blobs under `ros2/quad_sdk/external/` (`unitree_sdk2`, `mblink`) that it links unconditionally even in sim mode — no build step for those, just vendored `.a`/`.so` files.
 
@@ -229,7 +229,11 @@ Three ways to make the Go2 walk, in increasing order of control sophistication:
 
 Go2 spawns and holds a low **sit** pose (`sit_angles` in `controller_plugin.cpp`'s bootstrap PD hold, body height ~0.08m). Publishing `ros2 topic pub /robot_1/control/mode std_msgs/msg/UInt8 "data: 1"` is the documented "stand" trigger (`robot_driver.cpp`'s `SIT → SIT_TO_READY → READY` state machine, `READY = 1`, 1s interpolation) — a **single** `--once` publish can lose the message to a ROS2 discovery race (publisher exits before the subscription match completes); **publish for ~1-2s at a few Hz instead** (`--rate 5`, a couple seconds) and it reliably reaches standing height (verified: body z went from 0.08m → 0.286m).
 
-Once standing, `global_body_planner` **successfully computes and publishes a real plan** (e.g. `Solve time: 0.036s, Vertices generated: 6, Path length: 5.06m` for a `goal_state:=[3.0, 0.0]` override) and `local_planner`/`nmpc_controller` pick it up and start solving. This is real, working RRT-based global planning — a genuine milestone. IPOPT then runs at high frequency but currently reports `NMPC solving fail` on every call. This is qualitatively different from every issue above: a numerical-optimization convergence problem (warm-start quality, joint/torque bound setup, horizon/dt tuning), not a crash or missing dependency, and the natural next investigation for whoever picks this up (start by getting IPOPT's actual exit/infeasibility diagnostics logged — currently only a pass/fail message surfaces, no solver-level detail).
+Once standing, `global_body_planner` **successfully computes and publishes a real plan** (e.g. `Solve time: 0.036s, Vertices generated: 6, Path length: 5.06m` for a `goal_state:=[3.0, 0.0]` override) and `local_planner`/`nmpc_controller` pick it up and start solving.
+
+**IPOPT was failing every single call with `ApplicationReturnStatus = -12` (`Invalid_Option`)** — not a convergence problem at all, but a config bug: `nmpc_controller.cpp` hardcoded `linear_solver = "ma27"`, an HSL solver requiring a licensed download this repo's IPOPT build doesn't have (it only has the open-source `mumps` solver — see the RBDL/IPOPT setup above). Diagnosed by adding the actual status-code log (`RCLCPP_WARN_STREAM(..., "ApplicationReturnStatus = " << status)`) around the solve call. Fixed by switching to `"mumps"` and dropping the now-irrelevant `ma57_pre_alloc` option.
+
+**Result: Go2 walks.** With the fix, NMPC converges on every call (~20-30ms/solve, real-time capable, zero failures across a full test run) and the robot physically walks to its goal: commanded `goal_state:=[3.0, 0.0]` from a start near the origin, and `/robot_1/state/ground_truth` showed `body.pose.position.x = 3.14` with `twist.linear.x = 0.69 m/s` a few seconds later — confirmed both numerically and visually (Gazebo GUI screenshot showing the robot displaced from the origin, upright, mid-gait).
 
 Milestones:
 
@@ -242,8 +246,10 @@ Milestones:
 | Start NMPC planner launch without crashing | Done |
 | Robot reaches a valid standing pose | Done (needs a held-down `control/mode` publish, not `--once`) |
 | `global_body_planner` computes and publishes a real path | Done |
-| NMPC (`local_planner`/`nmpc_controller`) converges reliably | Not yet — IPOPT runs but fails every call |
-| Walk with NMPC | Not yet — blocked on NMPC convergence |
+| NMPC (`local_planner`/`nmpc_controller`) converges reliably | Done (was `linear_solver=ma27` with no HSL license → fixed to `mumps`) |
+| Walk with NMPC | **Done** — verified reaching a commanded goal at ~0.7 m/s |
+
+Remaining open items: gait quality/stability under different gaits and terrains is untuned (only flat ground + a single forward goal tested), and the Gazebo real-time factor was ~27-29% in this environment (NMPC solve load), so behavior on slower/faster hardware is unverified.
 
 Porting fixes already applied:
 - ROS package/dependency names were moved from Jazzy/Noble assumptions to Humble/Jammy where packages exist.

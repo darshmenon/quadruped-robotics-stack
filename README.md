@@ -267,8 +267,44 @@ Porting fixes already applied:
 - Local terrain consumers tolerate raw mesh maps that only contain the `z` layer instead of filtered `z_inpainted`, `z_smooth`, or traversability layers: `global_body_planner`'s `isTraversable`/`getTraversability` fall back to fully-traversable when the `traversability` layer doesn't exist, and `nmpc_controller`'s `quad_nlp.cpp` (4 call sites) now goes through `terrainHeightAtPosition`/`terrainNormalAtPosition` helpers instead of hardcoding `z_inpainted`/`normal_vectors_*` — both were crashing with `GridMap::at(...): No map layer ... available` before this.
 - `quad_utils` builds as a **static** library (`libquad_utils.a`); a source-only change there needs a full `colcon build` (not `--packages-select quad_utils`) to actually relink the ~6 downstream packages that statically link it, or they'll keep running the stale old code despite quad_utils itself rebuilding successfully.
 - `robot_driver` and the packages it needs were vendored (it's not hardware-only, despite the name — it's also the sim-mode state estimator/control interface); it needed the same `pinocchio::pinocchio` direct-link fix as the other 5 packages.
+- `quad_plan.py` never declared a top-level `goal_state` launch argument — it only read `goal_state` from *inside* each robot's `robot_configs` JSON entry (a multi-robot/CBS-oriented design). Passing `goal_state:="[x, y]"` directly to `ros2 launch quad_utils quad_plan.py` was silently ignored (ROS2 launch doesn't error on unrecognized arguments), so the robot always walked to the `global_body_planner.yaml` default of `[5.0, 0.0]` regardless of what was passed. Fixed by adding a top-level `goal_state` argument that any `robot_configs` entry without its own embedded `goal_state` now falls back to.
 
-Useful smoke test:
+**Easiest way to try it — one command:**
+
+```bash
+./scripts/walk_quadsdk_go2.sh                          # flat ground, goal (5, 0)
+./scripts/walk_quadsdk_go2.sh 8.0 0.0 gui               # custom goal, with the Gazebo GUI visible
+./scripts/walk_quadsdk_go2.sh 5.0 0.0 gui step_20cm.sdf # walk over a terrain world instead of flat ground
+```
+
+This launches Gazebo, spawns Go2, holds the stand command for you (a single `--once` publish can be lost to a ROS2 discovery race — this script handles that), and starts the NMPC planner toward the goal.
+
+**Terrain worlds** (mechanism verified end-to-end on `step_20cm.sdf` specifically — mesh loads, Go2 stands, NMPC solves with zero failures given a reachable goal; the others below use the identical launch/terrain-loading path so should behave the same, but haven't each been individually run — pick a goal before/around the feature, not on top of it):
+
+```bash
+# Steps of increasing height
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui step_10cm.sdf
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui step_20cm.sdf
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui step_30cm.sdf
+
+# Gaps of increasing width
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui gap_20cm.sdf
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui gap_40cm.sdf
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui gap_80cm.sdf
+
+# Slopes and rough/uneven ground
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui slope_20.sdf
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui rough_25cm.sdf
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui rough_40cm_huge.sdf
+
+# Combined obstacle course
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui parkour_local_min.sdf
+
+# Longer flat-ground walk (flat.sdf's mesh only spans ~5m; use big_flat.sdf beyond that)
+./scripts/walk_quadsdk_go2.sh 15.0 0.0 gui big_flat.sdf
+```
+
+Useful smoke test (just the sim, no walking, for quick sanity checks):
 
 ```bash
 timeout 45 bash -c '

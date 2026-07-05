@@ -25,11 +25,16 @@ def launch_robot_group(context, *args, **kwargs):
         robot_controller = config["controller_mode"]
         reference = config["reference"]
         twist_input = config["twist_input"]
-        # Optional per-robot global_body_planner goal override. Empty string
-        # leaves the yaml default in place (preserves single-robot behavior).
+        # Optional per-robot global_body_planner goal override. A goal_state
+        # embedded in this robot's own robot_configs entry takes precedence;
+        # otherwise fall back to the top-level goal_state launch arg (the
+        # common single-robot case, e.g. `goal_state:="[8.0, 0.0]"`). Empty
+        # string leaves the yaml default in place (preserves prior behavior).
         goal_state = config.get("goal_state", "")
         if isinstance(goal_state, (list, tuple)):
             goal_state = json.dumps(list(goal_state))
+        if not goal_state:
+            goal_state = LaunchConfiguration('goal_state').perform(context)
 
         planning_launch_file = PathJoinSubstitution([
             FindPackageShare('quad_utils'),
@@ -84,6 +89,10 @@ def generate_launch_description():
         DeclareLaunchArgument('use_sim_time', default_value='true', description='Use Simulation Clock or Computer Clock'),
         DeclareLaunchArgument('force_app', default_value='false', description='Launch Force Applicator Alongside Planning'),
         DeclareLaunchArgument('cbs_mode', default_value='false', description='Suppress GBP spin-loop solo planning (used by multi_robot.py for CBS).'),
+        DeclareLaunchArgument(
+            'goal_state',
+            default_value='',
+            description='Optional JSON "[x, y]" goal override for any robot in robot_configs that does not embed its own goal_state. Empty = use global_body_planner.yaml default.'),
         DeclareLaunchArgument(
             'robot_configs',
             default_value='[{"name": "robot_1", "type": "go2", "controller_mode" : "inverse_dynamics", "reference": "gbpl", "twist_input": "none"}]',

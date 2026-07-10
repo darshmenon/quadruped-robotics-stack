@@ -5,9 +5,14 @@
 ![MuJoCo](https://img.shields.io/badge/MuJoCo-3.1-green.svg)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)
 
-Quadruped robot dog simulation, walking control, and reinforcement learning policy training workspace.
+A ROS2 + Gazebo + MuJoCo workspace for simulating and walking quadruped robots, with three interchangeable locomotion backends and an RL training pipeline built on top.
 
-Supports: Unitree Go2, Boston Dynamics Spot, MIT Mini Cheetah, ANYmal B/C, Mini Pupper.
+**What's working right now:**
+- **[Quad-SDK](https://github.com/robomechanics/quad-sdk) NMPC** drives a real Unitree Go2 to a commanded goal in Gazebo Harmonic — stands up, plans a path, solves NMPC in real time (~20-30ms/solve), and walks at ~0.7 m/s. See [Quad-SDK (NMPC locomotion)](#quad-sdk-nmpc-locomotion--go2-walks) for the full verified trace.
+- **RL locomotion**: a PPO policy trained end-to-end in MuJoCo (domain randomization, curriculum, 8-term reward) learns to walk the Go2 from scratch. See [RL Policy Training](#rl-policy-training).
+- **CHAMP** kinematic gait engine for quick, dependency-light walking on the generic reference robot.
+
+**Go2 is the only fully working robot** — real URDF, meshes, and both locomotion backends. The `urdf/{go1,spot,mini_cheetah,mini_pupper,anymal_b,anymal_c}_config/` folders are CHAMP gait/joint-layout config stubs carried over from upstream CHAMP examples: no URDF or mesh files are vendored, each references an external `*_description` ROS1(!) package by `$(find ...)` that isn't included in this repo, so none of them spawn as-is. Treat them as a starting point for wiring up a new robot, not as ready-to-run.
 
 ![Go2 walking under Quad-SDK NMPC control](docs/images/go2_walking.gif)
 
@@ -31,6 +36,7 @@ Supports: Unitree Go2, Boston Dynamics Spot, MIT Mini Cheetah, ANYmal B/C, Mini 
 - [Deploy Trained Policy in MuJoCo](#deploy-trained-policy-in-mujoco)
 - [Available Robots](#available-robots)
 - [Intelligence Modules](#intelligence-modules)
+- [Roadmap](#roadmap)
 - [References](#references)
 
 ---
@@ -223,51 +229,9 @@ Three ways to make the Go2 walk, in increasing order of control sophistication:
 
 ### Quad-SDK (NMPC locomotion) — Go2 walks
 
-[Quad-SDK](https://github.com/robomechanics/quad-sdk) is vendored in `ros2/quad_sdk/`. Its solver dependencies, RBDL and IPOPT, are built locally into `ros2/quad_sdk_external/`, so the Quad-SDK workspace does not need anything under `/usr/local`. The vendored tree includes Go2 URDF/SDF assets, terrain worlds, NMPC solver code, planners, `robot_driver`, and the Quad-SDK controller plugins. `robot_driver` (the sim/hardware state-estimator and control-interface layer) pulls in two prebuilt hardware SDK binary blobs under `ros2/quad_sdk/external/` (`unitree_sdk2`, `mblink`) that it links unconditionally even in sim mode — no build step for those, just vendored `.a`/`.so` files.
+[Quad-SDK](https://github.com/robomechanics/quad-sdk) is vendored in `ros2/quad_sdk/`, with RBDL/IPOPT built locally into `ros2/quad_sdk_external/` (no `/usr/local` deps). Go2 stands up, `global_body_planner` plans a path, `local_planner`/`nmpc_controller` solve NMPC in real time (~20-30ms/solve), and the robot walks to a commanded goal at ~0.7 m/s on flat ground — verified numerically (`ground_truth` position/velocity) and visually.
 
-**Current status:** the Humble/Jammy port builds and launches Go2 in Gazebo Harmonic. The old blocker from `ros-humble-gz-ros2-control` is bypassed for Go2 by a native gz-sim8 system plugin, `quad_sim_effort_controller`, which subscribes to `/robot_1/control/joint_command` and applies Quad-SDK joint efforts directly in Gazebo. This confirms the sim, `robot_driver`, bridges, ground-truth state, and effort bridge can start together.
-
-`global_body_planner_node` now runs indefinitely without crashing (previously aborted within seconds on `GridMap::at(...): No map layer 'z_inpainted' available` — see fixes below).
-
-Go2 spawns and holds a low **sit** pose (`sit_angles` in `controller_plugin.cpp`'s bootstrap PD hold, body height ~0.08m). Publishing `ros2 topic pub /robot_1/control/mode std_msgs/msg/UInt8 "data: 1"` is the documented "stand" trigger (`robot_driver.cpp`'s `SIT → SIT_TO_READY → READY` state machine, `READY = 1`, 1s interpolation) — a **single** `--once` publish can lose the message to a ROS2 discovery race (publisher exits before the subscription match completes); **publish for ~1-2s at a few Hz instead** (`--rate 5`, a couple seconds) and it reliably reaches standing height (verified: body z went from 0.08m → 0.286m).
-
-Once standing, `global_body_planner` **successfully computes and publishes a real plan** (e.g. `Solve time: 0.036s, Vertices generated: 6, Path length: 5.06m` for a `goal_state:=[3.0, 0.0]` override) and `local_planner`/`nmpc_controller` pick it up and start solving.
-
-**IPOPT was failing every single call with `ApplicationReturnStatus = -12` (`Invalid_Option`)** — not a convergence problem at all, but a config bug: `nmpc_controller.cpp` hardcoded `linear_solver = "ma27"`, an HSL solver requiring a licensed download this repo's IPOPT build doesn't have (it only has the open-source `mumps` solver — see the RBDL/IPOPT setup above). Diagnosed by adding the actual status-code log (`RCLCPP_WARN_STREAM(..., "ApplicationReturnStatus = " << status)`) around the solve call. Fixed by switching to `"mumps"` and dropping the now-irrelevant `ma57_pre_alloc` option.
-
-**Result: Go2 walks.** With the fix, NMPC converges on every call (~20-30ms/solve, real-time capable, zero failures across a full test run) and the robot physically walks to its goal: commanded `goal_state:=[3.0, 0.0]` from a start near the origin, and `/robot_1/state/ground_truth` showed `body.pose.position.x = 3.14` with `twist.linear.x = 0.69 m/s` a few seconds later — confirmed both numerically and visually (Gazebo GUI screenshot showing the robot displaced from the origin, upright, mid-gait).
-
-Milestones:
-
-| Milestone | Status |
-|-----------|--------|
-| Build all Quad-SDK packages | Done |
-| Launch Gazebo and spawn Go2 | Done |
-| Start `robot_driver` in sim | Done |
-| Drive Go2 joints in Harmonic without `gz_ros2_control` | Done |
-| Start NMPC planner launch without crashing | Done |
-| Robot reaches a valid standing pose | Done (needs a held-down `control/mode` publish, not `--once`) |
-| `global_body_planner` computes and publishes a real path | Done |
-| NMPC (`local_planner`/`nmpc_controller`) converges reliably | Done (was `linear_solver=ma27` with no HSL license → fixed to `mumps`) |
-| Walk with NMPC | **Done** — verified reaching a commanded goal at ~0.7 m/s |
-
-Remaining open items: gait quality/stability under different gaits and terrains is untuned (only flat ground + a single forward goal tested), and the Gazebo real-time factor was ~27-29% in this environment (NMPC solve load), so behavior on slower/faster hardware is unverified.
-
-Porting fixes already applied:
-- ROS package/dependency names were moved from Jazzy/Noble assumptions to Humble/Jammy where packages exist.
-- RBDL/IPOPT lookup now auto-detects the local prefix under `ros2/quad_sdk_external/local`.
-- Pinocchio compile definitions are linked through packages that include `quad_utils/quad_kd2.hpp`.
-- `ros2_control` API calls were adjusted for the installed Humble controller-manager version.
-- Timestamp arithmetic was updated to wrap message stamps in `rclcpp::Time`.
-- Humble-missing grid-map UI/filter components are not installed by the setup script and are optional at launch: `enable_grid_map_viz:=false` and `enable_grid_map_filters:=false` by default.
-- Gazebo sim defaults to `estimator:=none`; the sim path already consumes ground-truth `RobotState`, so the mocap-oriented complementary filter is not required for launch.
-- Go2 Gazebo Harmonic control uses `quad_sim_effort_controller` instead of `gz_ros2_control`; Humble's packaged `gz_ros2_control` plugin exports the older Ignition/Fortress hook and cannot load in `gz-sim8`.
-- `body_force_estimator` is treated as optional in `planning.py`; this repo does not currently vendor that package.
-- When Humble-missing `grid_map_filters` are disabled, `mapping.py` relays raw mesh terrain to the filtered terrain topic names expected by `robot_bringup` and `local_planner`.
-- Local terrain consumers tolerate raw mesh maps that only contain the `z` layer instead of filtered `z_inpainted`, `z_smooth`, or traversability layers: `global_body_planner`'s `isTraversable`/`getTraversability` fall back to fully-traversable when the `traversability` layer doesn't exist, and `nmpc_controller`'s `quad_nlp.cpp` (4 call sites) now goes through `terrainHeightAtPosition`/`terrainNormalAtPosition` helpers instead of hardcoding `z_inpainted`/`normal_vectors_*` — both were crashing with `GridMap::at(...): No map layer ... available` before this.
-- `quad_utils` builds as a **static** library (`libquad_utils.a`); a source-only change there needs a full `colcon build` (not `--packages-select quad_utils`) to actually relink the ~6 downstream packages that statically link it, or they'll keep running the stale old code despite quad_utils itself rebuilding successfully.
-- `robot_driver` and the packages it needs were vendored (it's not hardware-only, despite the name — it's also the sim-mode state estimator/control interface); it needed the same `pinocchio::pinocchio` direct-link fix as the other 5 packages.
-- `quad_plan.py` never declared a top-level `goal_state` launch argument — it only read `goal_state` from *inside* each robot's `robot_configs` JSON entry (a multi-robot/CBS-oriented design). Passing `goal_state:="[x, y]"` directly to `ros2 launch quad_utils quad_plan.py` was silently ignored (ROS2 launch doesn't error on unrecognized arguments), so the robot always walked to the `global_body_planner.yaml` default of `[5.0, 0.0]` regardless of what was passed. Fixed by adding a top-level `goal_state` argument that any `robot_configs` entry without its own embedded `goal_state` now falls back to.
+Full porting history, the IPOPT `mumps`-vs-`ma27` fix, and every other bug fixed to get here is in **[docs/quadsdk_notes.md](docs/quadsdk_notes.md)**.
 
 **Easiest way to try it — one command:**
 
@@ -279,30 +243,36 @@ Porting fixes already applied:
 
 This launches Gazebo, spawns Go2, holds the stand command for you (a single `--once` publish can be lost to a ROS2 discovery race — this script handles that), and starts the NMPC planner toward the goal.
 
-**Terrain worlds** (mechanism verified end-to-end on `step_20cm.sdf` specifically — mesh loads, Go2 stands, NMPC solves with zero failures given a reachable goal; the others below use the identical launch/terrain-loading path so should behave the same, but haven't each been individually run — pick a goal before/around the feature, not on top of it):
+**Terrain worlds** — actually run headless against every world in `quad_sim_scripts/worlds/` on 2026-07-10, not just assumed to work. Pick a goal before/around the feature, not on top of it:
 
 ```bash
-# Steps of increasing height
-./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui step_10cm.sdf
+# Confirmed working
 ./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui step_20cm.sdf
+./scripts/walk_quadsdk_go2.sh 15.0 0.0 gui big_flat.sdf   # flat.sdf's mesh only spans ~5m; use this beyond that
+
+# Solve without crashing, but front-leg motor effort hits ~2x the 33.5 Nm torque
+# limit repeatedly — fine in sim, would overcurrent on real hardware
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui step_25cm.sdf
 ./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui step_30cm.sdf
 
-# Gaps of increasing width
+# global_body_planner_node segfaults (exit -11) on these — do not expect these to work
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui gap_80cm.sdf
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui slope_20_hole.sdf
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui rough_40cm_huge.sdf
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui parkour_local_min.sdf
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui gap_40cm_local_min.sdf
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui step_10cm_local_min.sdf   # robot also falls through the mesh
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui step_15cm_local_min.sdf   # robot also falls through the mesh
+
+# Not re-tested this pass, treat as unverified either way
+./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui step_10cm.sdf
 ./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui gap_20cm.sdf
 ./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui gap_40cm.sdf
-./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui gap_80cm.sdf
-
-# Slopes and rough/uneven ground
 ./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui slope_20.sdf
 ./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui rough_25cm.sdf
-./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui rough_40cm_huge.sdf
-
-# Combined obstacle course
-./scripts/walk_quadsdk_go2.sh 1.0 0.0 gui parkour_local_min.sdf
-
-# Longer flat-ground walk (flat.sdf's mesh only spans ~5m; use big_flat.sdf beyond that)
-./scripts/walk_quadsdk_go2.sh 15.0 0.0 gui big_flat.sdf
 ```
+
+Full test notes (including whether this is a real terrain bug vs. an artifact of running many sims back to back) in [docs/quadsdk_notes.md](docs/quadsdk_notes.md#terrain-test-results).
 
 Useful smoke test (just the sim, no walking, for quick sanity checks):
 
@@ -558,6 +528,10 @@ python3 training/headless_control.py --record out.mp4
 Runs a trained checkpoint in the same headless OpenCV viewer as the IK controller.
 VecNormalize stats are auto-detected from the checkpoint directory.
 
+![Go2 MuJoCo policy viewer](docs/images/go2_policy.png)
+
+> **Known issue:** on `go2_mujoco_final.zip`, commanding `vx=+0.50` produces an actual `vx≈+0.01` (robot stands in place) while reward still reads `+0.975` — near the top of the scale. That points to the velocity-tracking reward term being too weak relative to the alive/orientation/height terms, letting the policy collect near-max reward by standing still instead of walking. `training/envs/go2_mujoco_env.py` now doubles the velocity-tracking weight, tightens its tracking kernel, and adds an explicit stall penalty (`r_stall`) so standing still under a real command can no longer out-earn walking — but this checkpoint predates that change and no retrain has been run against it yet, so treat it as unverified until a fresh policy is trained and re-evaluated.
+
 ```bash
 # Auto-detect vecnorm stats from the same directory as the model
 python3 training/play_policy.py --model training/logs/mujoco/best_model.zip
@@ -612,16 +586,19 @@ ros2 launch launch/policy_deploy.launch.py checkpoint:=/path/to/policy.pt task:=
 
 ## Available Robots
 
-| Robot | URDF Path | RL Task | Quad-SDK config |
-|-------|-----------|---------|------------------|
-| Unitree Go2 | `urdf/go2_unitree/urdf/go2.urdf` | `go2` | `ros2/quad_sdk/quad_simulator/go2_description/` |
-| Unitree H1 | — | `h1`, `h1_2` | — |
-| Unitree G1 | — | `g1` | — |
-| Boston Dynamics Spot | `urdf/spot_config/` | — | — |
-| MIT Mini Cheetah | `urdf/mini_cheetah_config/` | — | — |
-| ANYmal B | `urdf/anymal_b_config/` | — | — |
-| ANYmal C | `urdf/anymal_c_config/` | — | — |
-| Mini Pupper | `urdf/mini_pupper_config/` | — | — |
+| Robot | URDF Path | RL Task | Quad-SDK config | Status |
+|-------|-----------|---------|------------------|--------|
+| Unitree Go2 | `urdf/go2_unitree/urdf/go2.urdf` | `go2` | `ros2/quad_sdk/quad_simulator/go2_description/` | **Working** — real URDF/meshes, NMPC + RL both drive it |
+| Unitree H1 | — | `h1`, `h1_2` | — | legged_gym task only, no URDF vendored here |
+| Unitree G1 | — | `g1` | — | legged_gym task only, no URDF vendored here |
+| Boston Dynamics Spot | `urdf/spot_config/` | — | — | Stub — CHAMP gait config only, no URDF/meshes, references an unvendored ROS1 `spot_description` package |
+| MIT Mini Cheetah | `urdf/mini_cheetah_config/` | — | — | Stub — same as above |
+| ANYmal B | `urdf/anymal_b_config/` | — | — | Stub — same as above |
+| ANYmal C | `urdf/anymal_c_config/` | — | — | Stub — same as above |
+| Mini Pupper | `urdf/mini_pupper_config/` | — | — | Stub — same as above |
+| Unitree Go1 | `urdf/go1_config/` | — | — | Stub — `config.json`'s `urdf_path` even points at the wrong robot (`yobotics_description`) |
+
+Don't spawn the "Stub" rows expecting them to work — they'll fail on a missing `_description` package. Go2 is the only robot this repo actually walks.
 
 ---
 
@@ -750,6 +727,17 @@ python3 intelligence/navigation/waypoint_navigator.py \
     --ros-args -p waypoints:="[2.0,0.0, 2.0,2.0, 0.0,0.0]" \
                -r /cmd_vel:=/cmd_vel_raw
 ```
+
+---
+
+## Roadmap
+
+What's actually worth doing next, in priority order:
+
+1. **Fix the `global_body_planner_node` segfault on hard terrain.** Crashes on `gap_80cm.sdf`, `slope_20_hole.sdf`, `rough_40cm_huge.sdf`, `parkour_local_min.sdf`, and all `*_local_min.sdf` worlds (see [terrain test results](docs/quadsdk_notes.md#terrain-test-results)) — the actual working terrain set is much smaller than the world files suggest. Likely a null/out-of-range access in the path search when no easy flat path exists near the goal.
+2. **Fix the MuJoCo RL policy's reward hack** (see [Play Trained Policy](#play-trained-policy-opencv-viewer)) — it's currently learning to stand still for near-max reward instead of walking. Reweight the velocity-tracking term in `training/envs/go2_mujoco_env.py` before trusting any checkpoint.
+3. **Fix `/cmd_vel` walking on the native Gazebo backend** — currently trips its own fall-detector instead of translating (see [Gazebo backend](#gazebo-backend-gazebo-harmonic-ros2)).
+4. **Multi-terrain RL is not there yet, and NMPC is the better bet for terrain anyway.** `training/envs/go2_scene.xml` is a flat plane — domain randomization only covers mass/friction/motor gain, not terrain geometry, so the RL policy has never seen a slope, step, or gap and can't generalize to one. Quad-SDK's NMPC is already terrain-aware (`terrainHeightAtPosition`/`terrainNormalAtPosition` reading real grid-map elevation) and is the backend that's actually walking — put multi-terrain effort into fixing #1 above rather than building an RL terrain curriculum. RL would only be worth revisiting for terrain if NMPC turns out to hit a hard ceiling.
 
 ---
 

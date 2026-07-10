@@ -115,8 +115,8 @@ class Go2MujocoEnv(gym.Env):
         ang_vel  = d.sensor("ang_vel").data.astype(np.float32)
         gravity  = self._gravity_vec()
 
-        r_lin    = float(np.exp(
-            -((lin_vel[0] - self.cmd[0])**2 + (lin_vel[1] - self.cmd[1])**2) / 0.25))
+        r_lin    = 2.0 * float(np.exp(
+            -((lin_vel[0] - self.cmd[0])**2 + (lin_vel[1] - self.cmd[1])**2) / 0.1))
         r_ang    = 0.5 * float(np.exp(-((ang_vel[2] - self.cmd[2])**2) / 0.25))
         r_z      = -2.0  * float(lin_vel[2]**2)
         r_height = -1.0  * (float(d.qpos[2]) - TARGET_HEIGHT)**2
@@ -127,9 +127,18 @@ class Go2MujocoEnv(gym.Env):
         contacts  = self._get_contacts()
         r_contact = 0.15 * min(float(np.sum(contacts > 0.3)) / 2.0, 1.0)
 
+        # Explicit stall penalty: standing still while a real command is
+        # active must never out-earn walking, no matter how forgiving the
+        # tracking kernel above is (previously the policy converged to
+        # standing still — see README "Known issue").
+        cmd_speed = float(np.hypot(self.cmd[0], self.cmd[1]))
+        actual_speed = float(np.hypot(lin_vel[0], lin_vel[1]))
+        r_stall = -0.6 if (cmd_speed > 0.15 and actual_speed < 0.3 * cmd_speed) else 0.0
+
         components = dict(
             lin=r_lin, ang=r_ang, vz=r_z, height=r_height,
             orient=r_orient, torque=r_torque, smooth=r_smooth, contact=r_contact,
+            stall=r_stall,
         )
         return float(sum(components.values())), components
 

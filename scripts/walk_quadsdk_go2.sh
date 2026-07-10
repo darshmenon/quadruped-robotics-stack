@@ -16,9 +16,13 @@
 #   ./scripts/walk_quadsdk_go2.sh 8.0 0.0 gui step_20cm.sdf  # walk over a terrain world
 #
 # Terrain worlds available under
-# ros2/quad_sdk/quad_simulator/quad_sim_scripts/worlds/ (verified: the sim
-# loads each mesh correctly, robot stands, and NMPC solves with zero
-# failures given a *reachable* goal):
+# ros2/quad_sdk/quad_simulator/quad_sim_scripts/worlds/ -- results vary by
+# world, see README.md's "Quad-SDK (NMPC locomotion)" terrain list and
+# docs/quadsdk_notes.md for what's actually confirmed working vs. what
+# crashes global_body_planner_node (gap_80cm.sdf, slope_20_hole.sdf,
+# rough_40cm_huge.sdf, parkour_local_min.sdf, and the *_local_min.sdf
+# variants all segfault it as of 2026-07-10). Don't assume a world works
+# just because it's listed here.
 #   flat.sdf (small patch, ~5m radius -- goals past that report "Invalid goal
 #   state" since they're outside the terrain mesh), big_flat.sdf (use this
 #   for goals farther than ~5m on flat ground),

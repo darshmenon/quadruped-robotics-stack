@@ -182,6 +182,23 @@ ros2 launch champ_teleop teleop.launch.py
 
 Use arrow keys / WASD to drive.
 
+### 3. Train and run an RL policy (Go2, MuJoCo)
+
+```bash
+pip install -r requirements.txt
+
+# Train (headless, ~12-13 min for 2M steps / 8 envs on a single GPU)
+./scripts/train_policy.sh mujoco --timesteps 2000000
+
+# Watch the trained policy walk (auto-detects vecnorm stats next to the checkpoint)
+python3 training/play_policy.py --model training/logs/mujoco/go2_mujoco_final.zip --cmd 0.5 0 0
+
+# Or save a video instead of opening a window
+python3 training/play_policy.py --model training/logs/mujoco/go2_mujoco_final.zip --record demo.mp4
+```
+
+See [RL Policy Training](#rl-policy-training) and [Play Trained Policy](#play-trained-policy-opencv-viewer) for details, reward terms, and the Gazebo backend.
+
 ---
 
 ## CHAMP Locomotion Simulation
@@ -575,12 +592,11 @@ python3 training/teleop_mujoco.py
 ## Deploy Trained Policy in MuJoCo
 
 ```bash
-# For H1/H1_2/G1 with pre-trained weights
+# For H1/H1_2/G1 with pre-trained weights (legged_gym / rsl_rl JIT .pt policies)
 python3 training/deploy/deploy_mujoco/deploy_mujoco.py h1.yaml
-
-# Via ROS2 launch (Go2)
-ros2 launch launch/policy_deploy.launch.py checkpoint:=/path/to/policy.pt task:=go2
 ```
+
+> **Go2 doesn't go through this path.** `deploy_mujoco.py` only has configs for `h1.yaml`, `h1_2.yaml`, `g1.yaml` (see `training/deploy/deploy_mujoco/configs/`) and expects a legged_gym-style JIT-traced `.pt` policy — not the Stable-Baselines3 `.zip` checkpoint that `train_mujoco.py` produces. `launch/policy_deploy.launch.py`'s `checkpoint:=`/`task:=go2` example is also broken as written: it passes `--checkpoint`/`--task` flags, but `deploy_mujoco.py` takes a single positional `config_file` argument — there's no `go2.yaml` to point it at anyway. To run the actual trained Go2 checkpoint, use [`training/play_policy.py`](#play-trained-policy-opencv-viewer) instead — that's the real "deploy and watch it walk" tool for this repo's SB3 policies.
 
 ---
 

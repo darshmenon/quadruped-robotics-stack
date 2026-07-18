@@ -408,6 +408,8 @@ Output: `training/logs/vision_compare/{blind,sighted}/` (checkpoints, `evaluatio
 
 Status: the env and obstacle placement are smoke-tested (import, reset, N random steps, both `use_vision` settings, obstacles forced active at max curriculum) — not yet a full trained-and-evaluated comparison, so treat blind-vs-sighted reward numbers as unverified until a full run's `evaluations.npz` has been checked.
 
+> **Fixed bug (worth knowing if you see `ep_len_mean` stuck at 1):** `_terrain_height_under_base()`/`_height_scan()` ray-cast straight down from above the base to measure height above ground. The ray originally checked every geom, including the robot's own base box directly beneath the ray origin, so it hit itself instead of the terrain and reported the robot as already below the ground on every single reset — instant termination, every episode, regardless of policy. Fixed by putting the floor and obstacle geoms in MuJoCo geom group 1 and restricting the ray to that group (robot geoms stay in the default group 0), so it can no longer self-intersect.
+
 ### Gazebo backend (Gazebo Harmonic + ROS2)
 
 Trains with real Gazebo Harmonic physics via ROS2 topics. Uses `JointPositionController` plugins for PD control, bridged via `ros_gz_bridge`.

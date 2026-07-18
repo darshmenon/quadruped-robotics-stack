@@ -73,6 +73,12 @@ class Go2MujocoVisionEnv(Go2MujocoEnv):
         self._hfield_elevation_z = float(self.model.hfield_size[self._hfield_id, 2])
         self._terrain_grid = np.zeros((self._nrow, self._ncol), dtype=np.float32)
 
+        # restrict terrain/obstacle ray-casts to geom group 1 (floor +
+        # obstacles, see go2_rough_scene.xml) so they can't self-intersect
+        # the robot's own geoms, which sit in the default group 0
+        self._terrain_geomgroup = np.zeros(6, dtype=np.uint8)
+        self._terrain_geomgroup[1] = 1
+
         self._obstacle_geom_ids = [
             mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, f"obstacle_{i}")
             for i in range(N_OBSTACLES)
@@ -188,7 +194,7 @@ class Go2MujocoVisionEnv(Go2MujocoEnv):
         origin = np.array([x, y, from_z])
         dist = mujoco.mj_ray(
             self.model, self.data, origin, np.array([0.0, 0.0, -1.0]),
-            None, 1, -1, self._scan_geomid)
+            self._terrain_geomgroup, 1, -1, self._scan_geomid)
         return from_z - dist if dist >= 0 else 0.0
 
     def _height_scan(self) -> np.ndarray:

@@ -16,19 +16,22 @@
 
   <worldbody>
     <light directional="true" pos="0 0 5" dir="0 0 -1" diffuse="0.8 0.8 0.8" specular="0.2 0.2 0.2"/>
-    <geom name="floor" type="hfield" hfield="terrain" pos="0 0 0" rgba="0.8 0.9 0.8 1" condim="3" friction="1.0 0.005 0.0001"/>
+    <geom name="floor" type="hfield" hfield="terrain" pos="0 0 0" rgba="0.8 0.9 0.8 1" condim="3" friction="1.0 0.005 0.0001" group="1"/>
 
     <!-- discrete obstacles (crates/steps); pos/size/quat rewritten from Python
          at reset time in Go2MujocoVisionEnv._randomize_obstacles(). Parked
-         well below the floor by default so an unused slot can't be hit. -->
-    <geom name="obstacle_0" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1"/>
-    <geom name="obstacle_1" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1"/>
-    <geom name="obstacle_2" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1"/>
-    <geom name="obstacle_3" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1"/>
-    <geom name="obstacle_4" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1"/>
-    <geom name="obstacle_5" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1"/>
-    <geom name="obstacle_6" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1"/>
-    <geom name="obstacle_7" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1"/>
+         well below the floor by default so an unused slot can't be hit.
+         group="1" (same as floor) so the terrain height-ray (which filters
+         to group 1 to avoid self-intersecting the robot's own geoms, all of
+         which are the default group 0) also picks these up. -->
+    <geom name="obstacle_0" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1" group="1"/>
+    <geom name="obstacle_1" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1" group="1"/>
+    <geom name="obstacle_2" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1" group="1"/>
+    <geom name="obstacle_3" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1" group="1"/>
+    <geom name="obstacle_4" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1" group="1"/>
+    <geom name="obstacle_5" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1" group="1"/>
+    <geom name="obstacle_6" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1" group="1"/>
+    <geom name="obstacle_7" type="box" size="0.1 0.1 0.1" pos="0 0 -5" rgba="0.75 0.35 0.2 1" group="1"/>
 
     <!-- GO2 floating base -->
     <body name="base" pos="0 0 0.55">

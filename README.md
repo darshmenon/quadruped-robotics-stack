@@ -8,8 +8,8 @@
 A ROS2 + Gazebo + MuJoCo workspace for simulating and walking quadruped robots, with three interchangeable locomotion backends and an RL training pipeline built on top.
 
 **What's working right now:**
+- **RL locomotion (primary focus)**: a PPO policy trained end-to-end in MuJoCo — no hand-written gait, no IK, just observations in and joint targets out — learns to walk the Go2 from scratch (domain randomization, curriculum, 8-term reward). A second pipeline trains and compares **blind vs. sighted** policies on procedurally randomized rough, multi-terrain ground with scattered obstacles and an 18-point height-scan observation. See [RL Policy Training](#rl-policy-training).
 - **[Quad-SDK](https://github.com/robomechanics/quad-sdk) NMPC** drives a real Unitree Go2 to a commanded goal in Gazebo Harmonic — stands up, plans a path, solves NMPC in real time (~20-30ms/solve), and walks at ~0.7 m/s. See [Quad-SDK (NMPC locomotion)](#quad-sdk-nmpc-locomotion--go2-walks) for the full verified trace.
-- **RL locomotion**: a PPO policy trained end-to-end in MuJoCo (domain randomization, curriculum, 8-term reward) learns to walk the Go2 from scratch. See [RL Policy Training](#rl-policy-training).
 - **CHAMP** kinematic gait engine for quick, dependency-light walking on the generic reference robot.
 
 **Go2 is the only fully working robot** — real URDF, meshes, and both locomotion backends. The `urdf/{go1,spot,mini_cheetah,mini_pupper,anymal_b,anymal_c}_config/` folders are CHAMP gait/joint-layout config stubs carried over from upstream CHAMP examples: no URDF or mesh files are vendored, each references an external `*_description` ROS1(!) package by `$(find ...)` that isn't included in this repo, so none of them spawn as-is. Treat them as a starting point for wiring up a new robot, not as ready-to-run.
@@ -82,10 +82,13 @@ quadruped-robotics-stack/
 ├── training/                # RL policy training
 │   ├── legged_gym/          # Isaac Gym PPO environments (original)
 │   ├── envs/                # MuJoCo + Gazebo Gymnasium environments
-│   │   ├── go2_mujoco_env.py   # Go2 MuJoCo env (SB3 PPO)
-│   │   ├── go2_gazebo_env.py   # Go2 Gazebo env (ROS2 bridge)
-│   │   └── go2_scene.xml       # MuJoCo MJCF scene
-│   ├── train_mujoco.py      # MuJoCo training script
+│   │   ├── go2_mujoco_env.py         # Go2 MuJoCo env (SB3 PPO), flat ground
+│   │   ├── go2_mujoco_vision_env.py  # Rough multi-terrain + obstacles, blind/sighted switch
+│   │   ├── go2_gazebo_env.py         # Go2 Gazebo env (ROS2 bridge)
+│   │   ├── go2_scene.xml             # MuJoCo MJCF scene, flat plane
+│   │   └── go2_rough_scene.xml       # MuJoCo MJCF scene, randomized heightfield + obstacles
+│   ├── train_mujoco.py      # MuJoCo training script, flat ground
+│   ├── train_vision_compare.py # Trains + compares blind vs. sighted on rough terrain
 │   ├── train_gazebo.py      # Gazebo training script
 │   ├── teleop_mujoco.py     # Keyboard teleop in MuJoCo
 │   ├── launch/              # ROS2 launch files for Gazebo RL
@@ -384,6 +387,26 @@ Output: `training/logs/mujoco/` — checkpoints + `vecnorm_<steps>_steps.pkl` ev
 # View reward curves in TensorBoard
 tensorboard --logdir training/logs/mujoco
 ```
+
+### Rough terrain + vision: blind vs. sighted (MuJoCo)
+
+`training/envs/go2_mujoco_vision_env.py` (`Go2MujocoVisionEnv`) extends the flat-ground env onto `go2_rough_scene.xml`, a scene whose entire floor is a MuJoCo heightfield rewritten from Python every episode reset instead of loaded once from disk:
+
+- **Multi-terrain heightfield** — `_randomize_terrain()` sums a few random low-frequency sine waves (rolling ground / ramps) with high-frequency uniform noise (gravel texture), scaled by curriculum level, and always re-flattens a spawn patch at the origin so the robot never spawns already tipping over.
+- **Discrete obstacles** — 8 box geoms (`obstacle_0`..`obstacle_7`) are repositioned, resized, and re-yawed every reset in `_randomize_obstacles()`, seated flush on the terrain height directly under them. Obstacle count and size scale with curriculum level (none at level 0, up to all 8 at max level), and unused slots are parked 5m below the floor.
+- **Blind vs. sighted observation** — `use_vision=False` keeps the same 49-dim proprioception-only observation as the flat-ground env (just now walking on uneven ground); `use_vision=True` adds an 18-point local height-scan (a 6x3 grid in front of/around the base, ray-cast against the terrain *and* any obstacle underneath it) for a 67-dim observation, mirroring the blind/perceptive locomotion setup from ANYmal/legged_gym research.
+- **Terrain-relative reward/termination** — height reward and the fall-termination check are measured relative to the terrain height directly under the base (ray-cast down), not absolute world height, since the floor is no longer flat.
+
+Train and compare both policies back-to-back on the same terrain/obstacle curriculum:
+
+```bash
+python3 training/train_vision_compare.py
+python3 training/train_vision_compare.py --timesteps 1000000 --n_envs 8 --cmd 0.4 0.0 0.0
+```
+
+Output: `training/logs/vision_compare/{blind,sighted}/` (checkpoints, `evaluations.npz`, final model + VecNormalize stats) and a `blind_vs_sighted.png` reward-curve comparison plot. `CheckpointCallback`/`EvalCallback` frequencies are computed as `timesteps // (n_envs * 4)` rather than a fixed step count — SB3 counts these in vectorized-rollout calls (env-steps / n_envs), so a fixed frequency picked for one `n_envs`/`timesteps` combination can silently never fire for another.
+
+Status: the env and obstacle placement are smoke-tested (import, reset, N random steps, both `use_vision` settings, obstacles forced active at max curriculum) — not yet a full trained-and-evaluated comparison, so treat blind-vs-sighted reward numbers as unverified until a full run's `evaluations.npz` has been checked.
 
 ### Gazebo backend (Gazebo Harmonic + ROS2)
 
@@ -753,7 +776,7 @@ What's actually worth doing next, in priority order:
 1. **Fix the `global_body_planner_node` segfault on hard terrain.** Crashes on `gap_80cm.sdf`, `slope_20_hole.sdf`, `rough_40cm_huge.sdf`, `parkour_local_min.sdf`, and all `*_local_min.sdf` worlds (see [terrain test results](docs/quadsdk_notes.md#terrain-test-results)) — the actual working terrain set is much smaller than the world files suggest. Likely a null/out-of-range access in the path search when no easy flat path exists near the goal.
 2. **Fix the MuJoCo RL policy's reward hack** (see [Play Trained Policy](#play-trained-policy-opencv-viewer)) — it's currently learning to stand still for near-max reward instead of walking. Reweight the velocity-tracking term in `training/envs/go2_mujoco_env.py` before trusting any checkpoint.
 3. **Fix `/cmd_vel` walking on the native Gazebo backend** — currently trips its own fall-detector instead of translating (see [Gazebo backend](#gazebo-backend-gazebo-harmonic-ros2)).
-4. **Multi-terrain RL is not there yet, and NMPC is the better bet for terrain anyway.** `training/envs/go2_scene.xml` is a flat plane — domain randomization only covers mass/friction/motor gain, not terrain geometry, so the RL policy has never seen a slope, step, or gap and can't generalize to one. Quad-SDK's NMPC is already terrain-aware (`terrainHeightAtPosition`/`terrainNormalAtPosition` reading real grid-map elevation) and is the backend that's actually walking — put multi-terrain effort into fixing #1 above rather than building an RL terrain curriculum. RL would only be worth revisiting for terrain if NMPC turns out to hit a hard ceiling.
+4. **Evaluate the new multi-terrain RL pipeline.** `training/envs/go2_mujoco_vision_env.py` + `go2_rough_scene.xml` now give the RL policy a randomized heightfield (ramps/noise) and curriculum-scaled discrete obstacles, plus an optional height-scan observation (see [Rough terrain + vision](#rough-terrain--vision-blind-vs-sighted-mujoco)) — the flat-plane limitation this item used to describe no longer applies to that backend (`training/envs/go2_scene.xml` / `train_mujoco.py` are still flat-ground only). What's missing is a completed, evaluated `train_vision_compare.py` run: confirm the blind policy actually degrades on rough terrain/obstacles relative to sighted before trusting either checkpoint.
 
 ---
 

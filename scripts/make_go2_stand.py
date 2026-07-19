@@ -33,6 +33,14 @@ STANDING_POSE = {
     "RR_hip_joint":   -0.10,
     "RR_thigh_joint": 1.0,
     "RR_calf_joint":  -1.5,
+    # Manipulator arm (see ros2/champ_description/urdf/arm.urdf.xacro), raised
+    # up and out so it's visible above the body instead of drooping under
+    # gravity with no controller holding it.
+    "base_joint":       0.0,
+    "lower_arm_joint":  1.4,
+    "upper_arm_joint":  0.8,
+    "wrist1_joint":     0.3,
+    "wrist2_joint":     0.0,
 }
 
 FOOT_LINKS = {"FL_foot", "FR_foot", "RL_foot", "RR_foot"}

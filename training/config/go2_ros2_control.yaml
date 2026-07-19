@@ -5,6 +5,8 @@ controller_manager:
       type: joint_state_broadcaster/JointStateBroadcaster
     joint_group_position_controller:
       type: position_controllers/JointGroupPositionController
+    arm_position_controller:
+      type: position_controllers/JointGroupPositionController
 
 joint_group_position_controller:
   ros__parameters:
@@ -21,3 +23,12 @@ joint_group_position_controller:
       - RR_hip_joint
       - RR_thigh_joint
       - RR_calf_joint
+
+arm_position_controller:
+  ros__parameters:
+    joints:
+      - base_joint
+      - lower_arm_joint
+      - upper_arm_joint
+      - wrist1_joint
+      - wrist2_joint

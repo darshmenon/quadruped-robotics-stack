@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  5-DOF manipulator arm, extracted from the flat champ_arm.urdf dump (CHAMP's
+  stock demo arm: base_joint/lower_arm_joint/upper_arm_joint/wrist1_joint/
+  wrist2_joint, no gripper) into a reusable macro so it can be mounted on any
+  robot base link instead of only the generic champ_description/champ.urdf
+  robot it originally shipped hardcoded into.
+-->
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <material name="black">
+    <color rgba="0.15 0.15 0.15 1.0"/>
+  </material>
+
+  <xacro:macro name="champ_arm" params="parent *origin">
+    <joint name="robot_to_arm_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="base_mount"/>
+      <xacro:insert_block name="origin"/>
+    </joint>
+    <link name="base_mount"/>
+
+    <!-- Named arm_base, not "base": the arm can be mounted on a robot
+         whose own body link is already named "base" (e.g. Go2), which
+         a plain "base" here would collide with. -->
+    <link name="arm_base">
+      <inertial>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <mass value="0.15"/>
+        <inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/>
+      </inertial>
+      <collision>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <geometry>
+          <mesh filename="package://champ_description/meshes/arm/base.stl" scale="0.001 0.001 0.001"/>
+        </geometry>
+      </collision>
+      <visual>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <geometry>
+          <mesh filename="package://champ_description/meshes/arm/base.stl" scale="0.001 0.001 0.001"/>
+        </geometry>
+        <material name="black"/>
+      </visual>
+    </link>
+    <joint name="base_joint" type="revolute">
+      <axis xyz="0 0 1"/>
+      <limit effort="25" lower="-1.57079632679" upper="1.57079632679" velocity="1.5"/>
+      <parent link="base_mount"/>
+      <child link="arm_base"/>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+    </joint>
+
+    <link name="lower_arm">
+      <inertial>
+        <origin rpy="0 0 0" xyz="-0.0125 0 0"/>
+        <mass value="0.1"/>
+        <inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/>
+      </inertial>
+      <collision>
+        <origin rpy="0 0 0" xyz="-0.0125 0 0"/>
+        <geometry>
+          <mesh filename="package://champ_description/meshes/arm/lower_arm.stl" scale="0.001 0.001 0.001"/>
+        </geometry>
+      </collision>
+      <visual>
+        <origin rpy="0 0 0" xyz="-0.0125 0 0"/>
+        <geometry>
+          <mesh filename="package://champ_description/meshes/arm/lower_arm.stl" scale="0.001 0.001 0.001"/>
+        </geometry>
+        <material name="black"/>
+      </visual>
+    </link>
+    <joint name="lower_arm_joint" type="revolute">
+      <axis xyz="0 1 0"/>
+      <limit effort="25" lower="-1.57079632679" upper="1.57079632679" velocity="1.5"/>
+      <parent link="arm_base"/>
+      <child link="lower_arm"/>
+      <origin rpy="0 0 0" xyz="0 0 0.035"/>
+    </joint>
+
+    <link name="upper_arm">
+      <inertial>
+        <origin rpy="0 0 0" xyz="-0.0125 0 0"/>
+        <mass value="0.1"/>
+        <inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/>
+      </inertial>
+      <collision>
+        <origin rpy="0 0 0" xyz="-0.0125 0 0"/>
+        <geometry>
+          <mesh filename="package://champ_description/meshes/arm/upper_arm.stl" scale="0.001 0.001 0.001"/>
+        </geometry>
+      </collision>
+      <visual>
+        <origin rpy="0 0 0" xyz="-0.0125 0 0"/>
+        <geometry>
+          <mesh filename="package://champ_description/meshes/arm/upper_arm.stl" scale="0.001 0.001 0.001"/>
+        </geometry>
+        <material name="black"/>
+      </visual>
+    </link>
+    <joint name="upper_arm_joint" type="revolute">
+      <axis xyz="0 1 0"/>
+      <limit effort="25" lower="-1.57079632679" upper="1.57079632679" velocity="1.5"/>
+      <parent link="lower_arm"/>
+      <child link="upper_arm"/>
+      <origin rpy="0 0 0" xyz="0.195 0 0"/>
+    </joint>
+
+    <link name="wrist1">
+      <inertial>
+        <origin rpy="0 0 0" xyz="-0.0125 0 0"/>
+        <mass value="0.05"/>
+        <inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/>
+      </inertial>
+      <collision>
+        <origin rpy="0 0 0" xyz="-0.0125 0 0"/>
+        <geometry>
+          <mesh filename="package://champ_description/meshes/arm/wrist1.stl" scale="0.001 0.001 0.001"/>
+        </geometry>
+      </collision>
+      <visual>
+        <origin rpy="0 0 0" xyz="-0.0125 0 0"/>
+        <geometry>
+          <mesh filename="package://champ_description/meshes/arm/wrist1.stl" scale="0.001 0.001 0.001"/>
+        </geometry>
+        <material name="black"/>
+      </visual>
+    </link>
+    <joint name="wrist1_joint" type="revolute">
+      <axis xyz="0 1 0"/>
+      <limit effort="25" lower="-1.57079632679" upper="1.57079632679" velocity="1.5"/>
+      <parent link="upper_arm"/>
+      <child link="wrist1"/>
+      <origin rpy="0 0 0" xyz="0.195 0 0"/>
+    </joint>
+
+    <link name="wrist2">
+      <inertial>
+        <origin rpy="0 0 0" xyz="-0.0455 0 0"/>
+        <mass value="0.05"/>
+        <inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4"/>
+      </inertial>
+      <collision>
+        <origin rpy="0 0 0" xyz="-0.0455 0 0"/>
+        <geometry>
+          <mesh filename="package://champ_description/meshes/arm/wrist2.stl" scale="0.001 0.001 0.001"/>
+        </geometry>
+      </collision>
+      <visual>
+        <origin rpy="0 0 0" xyz="-0.0455 0 0"/>
+        <geometry>
+          <mesh filename="package://champ_description/meshes/arm/wrist2.stl" scale="0.001 0.001 0.001"/>
+        </geometry>
+        <material name="black"/>
+      </visual>
+    </link>
+    <joint name="wrist2_joint" type="revolute">
+      <axis xyz="1 0 0"/>
+      <limit effort="25" lower="-1.57079632679" upper="1.57079632679" velocity="1.5"/>
+      <parent link="wrist1"/>
+      <child link="wrist2"/>
+      <origin rpy="0 0 0" xyz="0.065 0 0"/>
+    </joint>
+  </xacro:macro>
+</robot>

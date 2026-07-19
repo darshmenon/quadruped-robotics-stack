@@ -20,6 +20,8 @@ A ROS2 + Gazebo + MuJoCo workspace for simulating and walking quadruped robots, 
 
 ![Unitree Go2 in Gazebo Garden](docs/images/go2_gazebo.png)
 
+![Go2 with manipulator arm mounted, in Gazebo](docs/images/go2_manipulator_arm.png)
+
 ---
 
 ## Table of Contents
@@ -35,6 +37,7 @@ A ROS2 + Gazebo + MuJoCo workspace for simulating and walking quadruped robots, 
 - [Keyboard Teleop](#keyboard-teleop-mujoco-with-rl-policy)
 - [Deploy Trained Policy in MuJoCo](#deploy-trained-policy-in-mujoco)
 - [Available Robots](#available-robots)
+- [Manipulator Arm](#manipulator-arm)
 - [Intelligence Modules](#intelligence-modules)
 - [Roadmap](#roadmap)
 - [References](#references)
@@ -643,6 +646,24 @@ Don't spawn the "Stub" rows expecting them to work — they'll fail on a missing
 
 ---
 
+## Manipulator Arm
+
+Go2 can carry a 5-DOF manipulator arm (`base_joint` → `lower_arm_joint` → `upper_arm_joint` → `wrist1_joint` → `wrist2_joint`, no gripper) mounted on top of the body. It's CHAMP's stock demo arm — previously a dead, unused asset (`ros2/champ_description/urdf/champ_arm.urdf`) hardcoded to the generic CHAMP robot — reworked into a reusable xacro macro (`ros2/champ_description/urdf/arm.urdf.xacro`) and mounted on Go2's `base` link in `urdf/go2_unitree/urdf/go2_gz.urdf.xacro`.
+
+![Go2 with manipulator arm mounted, in Gazebo](docs/images/go2_manipulator_arm.png)
+
+```bash
+source /opt/ros/humble/setup.bash
+source ros2/install/setup.bash
+ros2 launch training/launch/gazebo_rl.launch.py headless:=false
+```
+
+The arm's joints are exposed through `ros2_control` (`training/config/go2_ros2_control.yaml`, controller `arm_position_controller`) for the `gz_ros2_control`-based launch paths, and get a raised, visible standing pose from `scripts/make_go2_stand.py` on the native-Gazebo launch path above.
+
+**Not yet done:** the arm isn't wired into the RL training envs (MuJoCo), the quad_sdk NMPC/planning stack, or CHAMP's gait engine — it's a visual/kinematic attachment only so far, driven purely by its position controller holding a fixed pose. Teleop, IK, or an RL task for it would all be new work.
+
+---
+
 ## Intelligence Modules
 
 Higher-level autonomy stack built on top of the base simulation and RL policy.
@@ -775,10 +796,11 @@ python3 intelligence/navigation/waypoint_navigator.py \
 
 What's actually worth doing next, in priority order:
 
-1. **Fix the `global_body_planner_node` segfault on hard terrain.** Crashes on `gap_80cm.sdf`, `slope_20_hole.sdf`, `rough_40cm_huge.sdf`, `parkour_local_min.sdf`, and all `*_local_min.sdf` worlds (see [terrain test results](docs/quadsdk_notes.md#terrain-test-results)) — the actual working terrain set is much smaller than the world files suggest. Likely a null/out-of-range access in the path search when no easy flat path exists near the goal.
-2. **Fix the MuJoCo RL policy's reward hack** (see [Play Trained Policy](#play-trained-policy-opencv-viewer)) — it's currently learning to stand still for near-max reward instead of walking. Reweight the velocity-tracking term in `training/envs/go2_mujoco_env.py` before trusting any checkpoint.
+1. ~~Fix the `global_body_planner_node` segfault on hard terrain.~~ **Fixed.** Crashed on `gap_80cm.sdf`, `slope_20_hole.sdf`, `rough_40cm_huge.sdf`, `parkour_local_min.sdf`, and all `*_local_min.sdf` worlds (see [terrain test results](docs/quadsdk_notes.md#terrain-test-results)). Root cause: `GBPL::postProcessPath` (`ros2/quad_sdk/global_body_planner/src/gbpl.cpp`) pops a state vector and an action vector together in lockstep, but the state vector always has one more element than the action vector (N states, N-1 edges) — when the direct-connect shortcut kept failing all the way to the second state (exactly what happens with no easy flat path near the goal), it read `.back()` off the now-empty action vector. Fixed by guarding that read; verified the package rebuilds clean.
+2. **Retrain the MuJoCo RL policy against its reward-hack fix.** `training/envs/go2_mujoco_env.py` already reweights the velocity-tracking term and adds a stall penalty (see [Play Trained Policy](#play-trained-policy-opencv-viewer)) so standing still under a real command can no longer out-earn walking — but no retrain had actually been run against it. A verification retrain is in progress; still needs evaluating once it finishes.
 3. **Fix `/cmd_vel` walking on the native Gazebo backend** — currently trips its own fall-detector instead of translating (see [Gazebo backend](#gazebo-backend-gazebo-harmonic-ros2)).
-4. **Evaluate the new multi-terrain RL pipeline.** `training/envs/go2_mujoco_vision_env.py` + `go2_rough_scene.xml` now give the RL policy a randomized heightfield (ramps/noise) and curriculum-scaled discrete obstacles, plus an optional height-scan observation (see [Rough terrain + vision](#rough-terrain--vision-blind-vs-sighted-mujoco)) — the flat-plane limitation this item used to describe no longer applies to that backend (`training/envs/go2_scene.xml` / `train_mujoco.py` are still flat-ground only). What's missing is a completed, evaluated `train_vision_compare.py` run: confirm the blind policy actually degrades on rough terrain/obstacles relative to sighted before trusting either checkpoint.
+4. **Evaluate the new multi-terrain RL pipeline.** `training/envs/go2_mujoco_vision_env.py` + `go2_rough_scene.xml` now give the RL policy a randomized heightfield (ramps/noise) and curriculum-scaled discrete obstacles, plus an optional height-scan observation (see [Rough terrain + vision](#rough-terrain--vision-blind-vs-sighted-mujoco)) — the flat-plane limitation this item used to describe no longer applies to that backend (`training/envs/go2_scene.xml` / `train_mujoco.py` are still flat-ground only). A fixed `train_vision_compare.py` run (an earlier run's terrain-ray bug ended every episode at step 1, invalidating its results) is in progress: confirm the blind policy actually degrades on rough terrain/obstacles relative to sighted before trusting either checkpoint.
+5. **Wire the [manipulator arm](#manipulator-arm) into something that does work.** It's mounted and visually verified but purely decorative right now — no RL task, no IK, no quad_sdk/CHAMP awareness of the extra mass and links.
 
 ---
 

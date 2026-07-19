@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, OpaqueFunction, TimerAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, OpaqueFunction, SetEnvironmentVariable, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -33,10 +33,25 @@ def generate_launch_description():
     world_arg = DeclareLaunchArgument("world", default_value=str(DEFAULT_WORLD))
     stand_duration_arg = DeclareLaunchArgument("stand_duration", default_value="-1.0")
 
+    # go2_gz.urdf's manipulator arm links (see
+    # ros2/champ_description/urdf/arm.urdf.xacro) use package://champ_description
+    # mesh URIs. Gazebo resolves those against GZ_SIM_RESOURCE_PATH, not ROS's
+    # package:// mechanism (that's only wired up for robot_state_publisher/RViz),
+    # so without this the arm mesh visuals silently fail to load while the rest
+    # of the body (which uses absolute file:// mesh paths) renders fine.
+    champ_description_share = get_package_share_directory("champ_description")
+    gz_resource_path = SetEnvironmentVariable(
+        "GZ_SIM_RESOURCE_PATH",
+        os.path.dirname(champ_description_share)
+        + (os.pathsep + os.environ["GZ_SIM_RESOURCE_PATH"]
+           if os.environ.get("GZ_SIM_RESOURCE_PATH") else ""),
+    )
+
     return LaunchDescription([
         headless_arg,
         world_arg,
         stand_duration_arg,
+        gz_resource_path,
         OpaqueFunction(function=_launch_setup),
     ])
 

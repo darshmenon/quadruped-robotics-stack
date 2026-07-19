@@ -4,6 +4,14 @@
   <!-- Include base go2 URDF -->
   <xacro:include filename="$(find champ_description)/urdf/go2.urdf"/>
 
+  <!-- 5-DOF manipulator arm mounted on top of the body, forward of center
+       and above the base collision box (0.3762 x 0.0935 x 0.114, top face
+       at z=0.057) so it doesn't intersect the body mesh -->
+  <xacro:include filename="$(find champ_description)/urdf/arm.urdf.xacro"/>
+  <xacro:champ_arm parent="base">
+    <origin rpy="0 0 0" xyz="0.08 0 0.057"/>
+  </xacro:champ_arm>
+
   <!-- Gazebo Harmonic gz_ros2_control plugin -->
   <gazebo>
     <plugin filename="libgz_ros2_control-system.so"
@@ -75,6 +83,31 @@
     <joint name="RR_calf_joint">
       <command_interface name="position"/>
       <state_interface name="position"><param name="initial_value">-1.5</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="base_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="lower_arm_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="upper_arm_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="wrist1_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="wrist2_joint">
+      <command_interface name="position"/>
+      <state_interface name="position"><param name="initial_value">0.0</param></state_interface>
       <state_interface name="velocity"/>
     </joint>
   </ros2_control>

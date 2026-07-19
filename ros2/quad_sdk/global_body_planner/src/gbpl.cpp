@@ -90,7 +90,17 @@ void GBPL::postProcessPath(std::vector<State>& state_sequence,
       state_sequence_copy.pop_back();
       action_sequence_copy.pop_back();
       s_next = state_sequence_copy.back();
-      a_next = action_sequence_copy.back();
+      // state_sequence_copy always has one more element than
+      // action_sequence_copy (N states, N-1 edges), so the pop above can
+      // leave action_sequence_copy empty (this happens whenever the direct
+      // connect keeps failing all the way to the second state, e.g. across
+      // a gap/local-minimum with no easy straight-line path). a_next is
+      // dead in that case -- the loop is about to exit on s == s_next and
+      // the caller falls back to old_state/old_action -- so just skip the
+      // read instead of calling back() on an empty vector.
+      if (!action_sequence_copy.empty()) {
+        a_next = action_sequence_copy.back();
+      }
     }
 
     // If a new state was found add it to the sequence, otherwise add the next

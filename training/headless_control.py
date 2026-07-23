@@ -350,9 +350,9 @@ def main():
     step = 0; sim_t = 0.0
     fps_display = 0.0; frame_count = 0; t0_fps = time.perf_counter()
 
-    # per-leg accumulated phases [FL, FR, RL, RR] in [0, 2π) — continuous across gait switches
-    _init_p    = scheduler.get_gait_params(0.0)
-    leg_phases = np.array(_init_p.phase_offsets) * 2.0 * np.pi
+    # shared cycle phase in [0, 2π), continuous across gait switches; per-leg
+    # phase_offsets from the active gait are added back in each tick below
+    cycle_phase = 0.0
 
     while not do_quit.is_set():
         if do_reset.is_set():
@@ -360,15 +360,16 @@ def main():
             sim_t = 0.0; step = 0
             cmd_filt   = CommandFilter(ctrl_hz=50, cutoff=1.5)
             scheduler.__init__()
-            leg_phases = np.array(GAITS[Gait.STAND].phase_offsets) * 2.0 * np.pi
+            cycle_phase = 0.0
             do_reset.clear()
 
         filtered[:] = cmd_filt.update(raw_cmd)
 
         speed      = float(np.hypot(filtered[0], filtered[2] * 0.3))
-        gait_p     = scheduler.get_gait_params(speed)
-        leg_phases = (leg_phases + 2.0 * np.pi * gait_p.frequency * SIM_DT * CTRL_DECIMATION) % (2.0 * np.pi)
-        ctrl       = gait_ctrl(leg_phases, filtered, gait_p)
+        gait_p      = scheduler.get_gait_params(speed)
+        cycle_phase = (cycle_phase + 2.0 * np.pi * gait_p.frequency * SIM_DT * CTRL_DECIMATION) % (2.0 * np.pi)
+        leg_phases  = (cycle_phase + np.array(gait_p.phase_offsets) * 2.0 * np.pi) % (2.0 * np.pi)
+        ctrl        = gait_ctrl(leg_phases, filtered, gait_p)
 
         data.ctrl[:] = np.clip(ctrl,
                                model.actuator_ctrlrange[:, 0],
@@ -408,7 +409,7 @@ def main():
             _reset(); sim_t = 0.0
             cmd_filt   = CommandFilter(ctrl_hz=50, cutoff=1.5)
             scheduler.__init__()
-            leg_phases = np.array(GAITS[Gait.STAND].phase_offsets) * 2.0 * np.pi
+            cycle_phase = 0.0
 
     do_quit.set()
     cv2.destroyAllWindows()

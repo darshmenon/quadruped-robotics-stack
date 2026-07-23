@@ -72,7 +72,7 @@ class StandPublisher(Node):
         self._roll = 0.0
         self._pitch = 0.0
         self._scheduler = GaitScheduler()
-        self._leg_phases = np.array(GAITS[Gait.STAND].phase_offsets) * 2.0 * np.pi
+        self._cycle_phase = 0.0
         self._pubs = {
             joint: self.create_publisher(Float64, f"/go2/cmd/{joint}", 10)
             for joint in JOINT_TARGETS
@@ -196,10 +196,13 @@ class StandPublisher(Node):
         else:
             speed = float(np.hypot(self._cmd[0], self._cmd[2] * 0.3))
             gait = self._scheduler.get_gait_params(speed)
-            self._leg_phases = (
-                self._leg_phases + 2.0 * np.pi * gait.frequency * CTRL_DT
+            self._cycle_phase = (
+                self._cycle_phase + 2.0 * np.pi * gait.frequency * CTRL_DT
             ) % (2.0 * np.pi)
-            targets = np.clip(_joint_targets(self._leg_phases, self._cmd, gait), -2.7, 2.7)
+            leg_phases = (
+                self._cycle_phase + np.array(gait.phase_offsets) * 2.0 * np.pi
+            ) % (2.0 * np.pi)
+            targets = np.clip(_joint_targets(leg_phases, self._cmd, gait), -2.7, 2.7)
 
         targets = self._apply_posture_feedback(targets)
         for pub, target in zip(self._pubs.values(), targets):

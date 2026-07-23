@@ -145,7 +145,7 @@ def main():
     rclpy.init()
     node = Teleop()
     scheduler = GaitScheduler()
-    leg_phases = np.array(GAITS[Gait.STAND].phase_offsets) * 2.0 * np.pi
+    cycle_phase = 0.0
     cmd = np.zeros(3, dtype=np.float64)
     do_quit = threading.Event()
     read_key, restore = _make_key_reader()
@@ -183,7 +183,8 @@ def main():
         while rclpy.ok() and not do_quit.is_set():
             speed = float(np.hypot(cmd[0], cmd[2] * 0.3))
             gait = scheduler.get_gait_params(speed)
-            leg_phases = (leg_phases + 2.0 * np.pi * gait.frequency * CTRL_DT) % (2.0 * np.pi)
+            cycle_phase = (cycle_phase + 2.0 * np.pi * gait.frequency * CTRL_DT) % (2.0 * np.pi)
+            leg_phases = (cycle_phase + np.array(gait.phase_offsets) * 2.0 * np.pi) % (2.0 * np.pi)
             targets = np.clip(_joint_targets(leg_phases, cmd, gait), -2.7, 2.7)
             node.publish_targets(targets)
             rclpy.spin_once(node, timeout_sec=0.0)

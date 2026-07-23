@@ -23,7 +23,7 @@ class CmdVelGo2(Node):
         super().__init__("cmd_vel_go2_gz")
         self._cmd = np.zeros(3, dtype=np.float64)
         self._scheduler = GaitScheduler()
-        self._leg_phases = np.array(GAITS[Gait.STAND].phase_offsets) * 2.0 * np.pi
+        self._cycle_phase = 0.0
         self._pubs = [self.create_publisher(Float64, f"/go2/cmd/{name}", 10) for name in JOINTS]
         self.create_subscription(Twist, "/cmd_vel", self._cmd_cb, 10)
 
@@ -33,10 +33,13 @@ class CmdVelGo2(Node):
     def publish_targets(self):
         speed = float(np.hypot(self._cmd[0], self._cmd[2] * 0.3))
         gait = self._scheduler.get_gait_params(speed)
-        self._leg_phases = (
-            self._leg_phases + 2.0 * np.pi * gait.frequency * CTRL_DT
+        self._cycle_phase = (
+            self._cycle_phase + 2.0 * np.pi * gait.frequency * CTRL_DT
         ) % (2.0 * np.pi)
-        targets = np.clip(_joint_targets(self._leg_phases, self._cmd, gait), -2.7, 2.7)
+        leg_phases = (
+            self._cycle_phase + np.array(gait.phase_offsets) * 2.0 * np.pi
+        ) % (2.0 * np.pi)
+        targets = np.clip(_joint_targets(leg_phases, self._cmd, gait), -2.7, 2.7)
         for pub, value in zip(self._pubs, targets):
             msg = Float64()
             msg.data = float(value)

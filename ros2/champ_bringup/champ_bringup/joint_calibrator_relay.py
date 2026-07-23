@@ -43,8 +43,9 @@ class JointsCalibratorRelay(Node):
         _ = self.create_subscription(JointState, "joints_calibrator", 
                                                                   self.joints_cmd_callback, 1)
 
-        # TODO unhardcode
-        joint_controller_topic = "joint_group_effort_controller/joint_trajectory"
+        self.declare_parameter('joint_controller_topic',
+                                "joint_group_effort_controller/joint_trajectory")
+        joint_controller_topic = self.get_parameter('joint_controller_topic').value
 
 
         self.joint_minimal_pub = self.create_publisher(Joints, "cmd_joints" ,100)

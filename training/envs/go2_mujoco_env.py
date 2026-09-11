@@ -202,7 +202,7 @@ class Go2MujocoEnv(gym.Env):
                  randomize_domain=True, use_curriculum=True,
                  initial_curriculum_level=0.0, reach_target=None,
                  gait_conditioned=False, gait_name="trotting",
-                 push_robots=True):
+                 push_robots=True, legs_only=False):
         super().__init__()
         self.model = mujoco.MjModel.from_xml_path(SCENE_XML)
         self.data = mujoco.MjData(self.model)
@@ -214,8 +214,16 @@ class Go2MujocoEnv(gym.Env):
         self.use_curriculum = use_curriculum
         self.gait_conditioned = bool(gait_conditioned)
         self.push_robots = bool(push_robots)
+        # legs_only holds the arm+gripper fixed at ARM_STOW and drops it from
+        # the action/observation space entirely, giving a 12-action/45-obs
+        # interface that matches Go2GazeboEnv exactly (same feature order and
+        # scaling in _get_obs) -- so a policy trained this way is the only
+        # kind that can be loaded straight into eval_gazebo.py without a
+        # shape mismatch. The normal (arm-enabled) env stays ACT_DIM=19/
+        # OBS_DIM=76 and is untouched by this flag.
+        self.legs_only = bool(legs_only)
         self._renderer = None
-        self._prev_action = np.zeros(ACT_DIM, dtype=np.float32)
+        self._prev_action = np.zeros(12 if self.legs_only else ACT_DIM, dtype=np.float32)
         self._step_count = 0
         self._steps_since_push = 0
         self._max_steps = int(EPISODE_LEN_S / (SIM_DT * CTRL_DECIMATION))
@@ -300,11 +308,14 @@ class Go2MujocoEnv(gym.Env):
         self._foot_vel_buf = np.zeros(6, dtype=np.float64)
         self._last_push = np.zeros(2, dtype=np.float32)
 
-        obs_dim = OBS_DIM + (GAIT_OBS_DIM if self.gait_conditioned else 0)
+        if self.legs_only:
+            obs_dim = 45  # 3 ang_vel + 3 gravity + 3 cmd + 12 dof_pos + 12 dof_vel + 12 prev_action
+        else:
+            obs_dim = OBS_DIM + (GAIT_OBS_DIM if self.gait_conditioned else 0)
         obs_high = np.full(obs_dim, np.inf, dtype=np.float32)
         self.observation_space = spaces.Box(-obs_high, obs_high, dtype=np.float32)
         self.action_space = spaces.Box(
-            low=-1.0, high=1.0, shape=(ACT_DIM,), dtype=np.float32)
+            low=-1.0, high=1.0, shape=(12 if self.legs_only else ACT_DIM,), dtype=np.float32)
         self._act_default = ACT_DEFAULT.copy()
 
     # ------------------------------------------------------------------ #
@@ -418,6 +429,12 @@ class Go2MujocoEnv(gym.Env):
         ang_vel   = d.sensor("ang_vel").data.astype(np.float32) * 0.25
         gravity   = self._gravity_vec()
         cmd_scaled = self.cmd * np.array([2.0, 2.0, 0.25], dtype=np.float32)
+        if self.legs_only:
+            dof_pos = (d.qpos[7:19].astype(np.float32) - DEFAULT_QPOS[:12])
+            dof_vel = d.qvel[6:18].astype(np.float32) * 0.05
+            return np.concatenate([
+                ang_vel, gravity, cmd_scaled, dof_pos, dof_vel, self._prev_action,
+            ])
         dof_pos   = (d.qpos[7:].astype(np.float32) - DEFAULT_QPOS)
         dof_vel   = d.qvel[6:].astype(np.float32) * 0.05
         contacts  = self._get_contacts()
@@ -484,23 +501,6 @@ class Go2MujocoEnv(gym.Env):
         # stalling specifically.
         r_alive = 0.0 if is_stalling else ALIVE_BONUS
 
-        ee_pos = d.sensor("ee_pos").data.astype(np.float32)
-        reach_dist = float(np.linalg.norm(self.reach_target - ee_pos))
-        # Once REACH_WEIGHT was raised to match locomotion's scale, standing
-        # still and just reaching (eating the -0.6 stall penalty) became more
-        # profitable than actually walking-while-reaching -- confirmed by
-        # play_policy.py eval on trained checkpoints showing dist=0.00m,
-        # mean_vx~=0.00 despite reach/reach_dense/reach_mid all firing and
-        # ep_rew_mean far above any historical walking-only peak. Gating all
-        # reach terms off during a stall closes that exploit at the source
-        # instead of trying to out-tune the stall penalty's magnitude.
-        reach_gate = 0.0 if is_stalling else 1.0
-        r_reach = reach_gate * REACH_WEIGHT * float(np.exp(-(reach_dist ** 2) / (REACH_SIGMA ** 2)))
-        r_reach_dense = reach_gate * REACH_DENSE_WEIGHT * max(0.0, 1.0 - reach_dist / REACH_DENSE_NORM)
-        r_reach_mid = reach_gate * (REACH_MID_WEIGHT
-                       if REACH_SUCCESS_DIST <= reach_dist < REACH_MID_RADIUS else 0.0)
-        r_reach_bonus = reach_gate * (REACH_SUCCESS_BONUS if reach_dist < REACH_SUCCESS_DIST else 0.0)
-
         r_air, r_slip = self._air_time_and_slip(contacts)
         r_col = -COLLISION_WEIGHT * float(self._nonfoot_collision_count())
         r_lim = -SOFT_LIMIT_WEIGHT * self._soft_dof_limit_penalty()
@@ -509,11 +509,36 @@ class Go2MujocoEnv(gym.Env):
             lin=r_lin, ang=r_ang, vz=r_z, height=r_height,
             orient=r_orient, torque=r_torque, smooth=r_smooth, contact=r_contact,
             stall=r_stall, alive=r_alive,
-            reach=r_reach, reach_dense=r_reach_dense, reach_mid=r_reach_mid,
-            reach_bonus=r_reach_bonus,
             air_time=r_air, slip=r_slip,
             collision=r_col, soft_limit=r_lim,
         )
+
+        # legs_only holds the arm perfectly stowed, so ee_pos never moves --
+        # the reach terms would just be a fixed, meaningless constant (or
+        # noise from the still-resampled reach_target) rather than a real
+        # task signal, so drop them from the sum entirely instead of scoring
+        # an arm that physically cannot respond.
+        if not self.legs_only:
+            ee_pos = d.sensor("ee_pos").data.astype(np.float32)
+            reach_dist = float(np.linalg.norm(self.reach_target - ee_pos))
+            # Once REACH_WEIGHT was raised to match locomotion's scale, standing
+            # still and just reaching (eating the -0.6 stall penalty) became more
+            # profitable than actually walking-while-reaching -- confirmed by
+            # play_policy.py eval on trained checkpoints showing dist=0.00m,
+            # mean_vx~=0.00 despite reach/reach_dense/reach_mid all firing and
+            # ep_rew_mean far above any historical walking-only peak. Gating all
+            # reach terms off during a stall closes that exploit at the source
+            # instead of trying to out-tune the stall penalty's magnitude.
+            reach_gate = 0.0 if is_stalling else 1.0
+            r_reach = reach_gate * REACH_WEIGHT * float(np.exp(-(reach_dist ** 2) / (REACH_SIGMA ** 2)))
+            r_reach_dense = reach_gate * REACH_DENSE_WEIGHT * max(0.0, 1.0 - reach_dist / REACH_DENSE_NORM)
+            r_reach_mid = reach_gate * (REACH_MID_WEIGHT
+                           if REACH_SUCCESS_DIST <= reach_dist < REACH_MID_RADIUS else 0.0)
+            r_reach_bonus = reach_gate * (REACH_SUCCESS_BONUS if reach_dist < REACH_SUCCESS_DIST else 0.0)
+            components.update(
+                reach=r_reach, reach_dense=r_reach_dense, reach_mid=r_reach_mid,
+                reach_bonus=r_reach_bonus,
+            )
 
         if self.gait_conditioned:
             # Match measured contacts to the commanded gait's stance/swing.
@@ -777,12 +802,13 @@ class Go2MujocoEnv(gym.Env):
         self.data.ctrl[:]   = self._act_default
         mujoco.mj_forward(self.model, self.data)
 
-        if self.use_curriculum:
-            self.reach_target, self._arm_ik_baseline = self._sample_target_and_baseline()
-        else:
-            self._arm_ik_baseline = self._compute_arm_ik_baseline()
+        if not self.legs_only:
+            if self.use_curriculum:
+                self.reach_target, self._arm_ik_baseline = self._sample_target_and_baseline()
+            else:
+                self._arm_ik_baseline = self._compute_arm_ik_baseline()
 
-        self._prev_action = np.zeros(ACT_DIM, dtype=np.float32)
+        self._prev_action = np.zeros(12 if self.legs_only else ACT_DIM, dtype=np.float32)
         self._step_count = 0
         self._steps_since_push = 0
         self._last_push[:] = 0.0
@@ -796,9 +822,13 @@ class Go2MujocoEnv(gym.Env):
 
     def step(self, action):
         action = np.clip(action, -1.0, 1.0).astype(np.float32)
-        ctrl = self._act_default + action * ACT_SCALE
-        ctrl[ARM_ACT_SLICE] = (
-            self._arm_ik_baseline + action[ARM_ACT_SLICE] * ARM_RESIDUAL_SCALE)
+        if self.legs_only:
+            ctrl = self._act_default.copy()
+            ctrl[:12] = self._act_default[:12] + action * ACT_SCALE
+        else:
+            ctrl = self._act_default + action * ACT_SCALE
+            ctrl[ARM_ACT_SLICE] = (
+                self._arm_ik_baseline + action[ARM_ACT_SLICE] * ARM_RESIDUAL_SCALE)
         self.data.ctrl[:] = ctrl
         for _ in range(CTRL_DECIMATION):
             mujoco.mj_step(self.model, self.data)

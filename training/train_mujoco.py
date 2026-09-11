@@ -123,13 +123,13 @@ class FreezeObsNormCallback(BaseCallback):
 # --------------------------------------------------------------------------- #
 
 def make_env(cmd, rank, seed=0, curriculum_level=0.0, gait_conditioned=False,
-             obs_history=1, asymmetric=False, push_robots=True):
+             obs_history=1, asymmetric=False, push_robots=True, legs_only=False):
     def _init():
         env = Go2MujocoEnv(cmd=cmd, render_mode=None,
                            randomize_domain=True, use_curriculum=True,
                            initial_curriculum_level=curriculum_level,
                            gait_conditioned=gait_conditioned,
-                           push_robots=push_robots)
+                           push_robots=push_robots, legs_only=legs_only)
         if obs_history > 1:
             env = ObsHistoryWrapper(env, history_len=obs_history)
         if asymmetric:
@@ -171,6 +171,11 @@ def main():
                              "(1 = disabled, recommended 5 for blind terrain inference)")
     parser.add_argument("--asymmetric", action="store_true",
                         help="DreamWaQ-lite: critic sees true lin_vel, actor proprio-only")
+    parser.add_argument("--legs-only", action="store_true",
+                        help="drop the arm+gripper from the action/observation space "
+                             "(12 actions, 45-dim obs) so the resulting checkpoint "
+                             "matches Go2GazeboEnv exactly and can be loaded straight "
+                             "into eval_gazebo.py -- uses a separate log dir")
     parser.add_argument("--no-push", action="store_true",
                         help="disable mid-episode push-robot domain randomization -- "
                              "useful when resuming a checkpoint trained before pushes "
@@ -191,6 +196,8 @@ def main():
     log_dir = args.log_dir
     if log_dir is None:
         suffix_parts = []
+        if args.legs_only:
+            suffix_parts.append("legsonly")
         if args.gait:
             suffix_parts.append("gait")
         if args.obs_history > 1:
@@ -216,13 +223,14 @@ def main():
     print(f"Training Go2 (MuJoCo) | cmd={cmd} | envs={args.n_envs} | steps={args.timesteps} "
           f"| curriculum_level={args.curriculum_level:.3f} "
           f"| gait={args.gait} | obs_history={args.obs_history} "
-          f"| asymmetric={args.asymmetric} | log={log_dir}")
+          f"| asymmetric={args.asymmetric} | legs_only={args.legs_only} | log={log_dir}")
 
     # ---- training envs with obs + reward normalisation ----
     vec_env = DummyVecEnv([
         make_env(cmd, i, curriculum_level=args.curriculum_level,
                  gait_conditioned=args.gait, obs_history=args.obs_history,
-                 asymmetric=args.asymmetric, push_robots=not args.no_push)
+                 asymmetric=args.asymmetric, push_robots=not args.no_push,
+                 legs_only=args.legs_only)
         for i in range(args.n_envs)])
     vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=True,
                            clip_obs=10.0, clip_reward=10.0)
@@ -231,7 +239,8 @@ def main():
     def _make_eval():
         e = Go2MujocoEnv(cmd=cmd, render_mode=None,
                          randomize_domain=False, use_curriculum=False,
-                         gait_conditioned=args.gait, push_robots=not args.no_push)
+                         gait_conditioned=args.gait, push_robots=not args.no_push,
+                         legs_only=args.legs_only)
         if args.obs_history > 1:
             e = ObsHistoryWrapper(e, history_len=args.obs_history)
         if args.asymmetric:

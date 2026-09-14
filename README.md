@@ -29,7 +29,6 @@ A ROS2 + Gazebo + MuJoCo workspace for simulating and walking quadruped robots, 
 - [RL Policy Training](#rl-policy-training)
 - [Model Policies](#model-policies)
 - [SLAM & Autonomy](#slam--autonomy)
-- [Other Controllers & Tools](#other-controllers--tools)
 - [Available Robots](#available-robots)
 - [Manipulator Arm](#manipulator-arm)
 - [Intelligence Modules](#intelligence-modules)
@@ -112,8 +111,11 @@ Full checklist: [docs/DEMOS.md](docs/DEMOS.md).
 | Backend | Approach | Status |
 |---------|----------|--------|
 | Native gz-sim (`training/launch/gazebo_rl.launch.py`) | RL policy or IK trot, direct `JointPositionController` | Working |
-| CHAMP (`ros2/champ_config`) | Kinematic gait engine | Wired for CHAMP's generic reference robot only, not Go2 — `champ_gazebo` needs Gazebo Classic, this repo runs Gazebo Harmonic |
+| CHAMP, generic robot (`ros2/champ_config`) | Kinematic gait engine | Wired for CHAMP's generic reference robot only, not Go2 — `champ_gazebo` needs Gazebo Classic, this repo runs Gazebo Harmonic |
+| CHAMP, Go2 (`launch/champ_go2_gazebo.launch.py`) | Kinematic gait engine, driving the real Go2 URDF via a joint-trajectory adapter, native Gazebo Harmonic | **Working** — default backend for [SLAM & Autonomy](#slam--autonomy) |
 | **Quad-SDK** (`ros2/quad_sdk`) | NMPC + global/local planner | **Walking** — verified end-to-end |
+
+Generic-robot CHAMP standalone: `ros2 launch ros2/champ_config/launch/gazebo.launch.py` + `ros2 launch champ_teleop teleop.launch.py` (doesn't fully launch end-to-end on this repo's Gazebo Harmonic setup, see the table above).
 
 ### Quad-SDK (NMPC locomotion) — Go2 walks
 
@@ -280,18 +282,11 @@ ros2 launch launch/slam_go2.launch.py  # subscribes /scan, publishes /map
 ```bash
 ros2 launch launch/slam3d_go2.launch.py headless:=true explore:=true
 ```
-`scripts/frontier_explorer_go2.py` grows a real occupancy grid and walks the robot toward frontier cells. `track_obstacles:=true` adds Kalman-tracked obstacle clustering. `locomotion:=nmpc` swaps CHAMP for the Quad-SDK backend (same lidar/RTAB-Map setup, also verified end-to-end).
+`scripts/frontier_explorer_go2.py` grows a real occupancy grid and walks the robot toward frontier cells. `track_obstacles:=true` adds Kalman-tracked obstacle clustering. `locomotion:=nmpc` swaps CHAMP for the Quad-SDK backend (same lidar/RTAB-Map setup, also verified end-to-end). RTAB-Map's frame is `base_footprint` (fixed below `base`, at ground level) rather than `base` itself, so the map/grid doesn't render floating above the feet; an RGB camera bridges into RViz as a picture-in-picture inset alongside the point cloud.
 
 ![Go2 3D LiDAR point cloud in RViz](docs/images/go2_slam3d_pointcloud.png)
 
 **Nav2** against the CHAMP map/config: `ros2 launch launch/nav2_go2.launch.py`.
-
----
-
-## Other Controllers & Tools
-
-- **CHAMP simulation:** `ros2 launch ros2/champ_config/launch/gazebo.launch.py` + `ros2 launch champ_teleop teleop.launch.py` (see [backends note](#locomotion-backends) — doesn't fully launch end-to-end on this repo's Gazebo Harmonic setup).
-- **Intelligence modules:** gait scheduling, terrain estimation, waypoint nav, LLM commander — see [Intelligence Modules](#intelligence-modules).
 
 ---
 
@@ -309,7 +304,7 @@ Only Go2 actually spawns and walks; don't expect the stub rows to work as-is.
 
 ## Manipulator Arm
 
-Go2 can carry a 5-DOF arm (no gripper) mounted on the body — CHAMP's stock demo arm, reworked into a reusable xacro macro and mounted on Go2's `base` link.
+Go2 can carry a 5-DOF arm with a 2-finger parallel gripper mounted on the body — CHAMP's stock demo arm, reworked into a reusable xacro macro and mounted on Go2's `base` link.
 
 ```bash
 ros2 launch training/launch/gazebo_rl.launch.py headless:=false
@@ -317,7 +312,7 @@ ros2 launch training/launch/gazebo_rl.launch.py headless:=false
 
 ![Go2 with manipulator arm](docs/images/go2_manipulator_arm.png)
 
-Driven via `ros2_control` (`arm_position_controller`). **Not yet done:** not wired into the RL training envs, NMPC, or CHAMP's gait engine — visual/kinematic attachment only, holding a fixed pose.
+Driven via `ros2_control` (`arm_position_controller`). Wired into the MuJoCo RL env (`training/envs/go2_mujoco_env.py`) with a reach reward, but that reward has never actually trained — see [CHANGELOG](docs/CHANGELOG.md#reach-reward-never-trained-the-arm-mujoco-walkarm-reach). **Not yet done:** not wired into NMPC or CHAMP's gait engine.
 
 ---
 

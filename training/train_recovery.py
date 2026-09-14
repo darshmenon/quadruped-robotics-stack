@@ -156,13 +156,19 @@ def main():
 
     eval_callback = EvalCallback(
         eval_env, best_model_save_path=log_dir, log_path=log_dir,
-        eval_freq=50_000,
+        # Both CheckpointCallback.save_freq and EvalCallback.eval_freq count
+        # n_calls, one per vectorized env.step() (n_envs timesteps each) --
+        # SB3 docs warn to divide by n_envs or checkpoints/evals land 8x less
+        # often than the "50_000" naming implies (see train_mujoco.py, which
+        # already divides for its CheckpointCallback after being bitten by
+        # this once).
+        eval_freq=max(50_000 // args.n_envs, 1),
         n_eval_episodes=8, deterministic=True, render=False)
 
     callbacks = [
         RewardComponentCallback(log_interval=1000),
         CheckpointCallback(
-            save_freq=50_000, save_path=ckpt_dir, name_prefix="go2_recovery"),
+            save_freq=max(50_000 // args.n_envs, 1), save_path=ckpt_dir, name_prefix="go2_recovery"),
         VecNormSaveCallback(
             vec_env, ckpt_dir, save_freq=50_000,
             curriculum_path=curriculum_path),

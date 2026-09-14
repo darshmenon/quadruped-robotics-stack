@@ -254,7 +254,12 @@ def main():
         eval_env,
         best_model_save_path=log_dir,
         log_path=log_dir,
-        eval_freq=50_000,
+        # Same n_calls-vs-timesteps gotcha as CheckpointCallback above
+        # (SB3's own EvalCallback docstring carries the identical warning) --
+        # undivided this evaluates every 50_000*n_envs steps, not 50_000.
+        # Missing this division let the stall-detection jitter exploit run
+        # for ~400k steps between eval checkpoints with nothing to catch it.
+        eval_freq=max(50_000 // args.n_envs, 1),
         # 5 episodes was too few once the robot's failure mode became
         # high-variance instead of consistently frozen -- a single lucky
         # long survival can drag a 5-episode mean up 10x (confirmed: eval

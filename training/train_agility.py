@@ -136,7 +136,10 @@ def main():
         eval_env,
         best_model_save_path=LOG_DIR,
         log_path=LOG_DIR,
-        eval_freq=50_000,
+        # Both save_freq and eval_freq below count n_calls (n_envs timesteps
+        # each) -- undivided they land 8x less often than "50_000" implies
+        # (SB3 docs warn about exactly this).
+        eval_freq=max(50_000 // args.n_envs, 1),
         n_eval_episodes=5,
         deterministic=True,
         render=False,
@@ -145,7 +148,7 @@ def main():
     callbacks = [
         RewardComponentCallback(log_interval=1000),
         CheckpointCallback(
-            save_freq=50_000, save_path=CKPT_DIR, name_prefix="go2_agility"),
+            save_freq=max(50_000 // args.n_envs, 1), save_path=CKPT_DIR, name_prefix="go2_agility"),
         VecNormSaveCallback(vec_env, CKPT_DIR, save_freq=50_000,
                             curriculum_path=CURRICULUM_PATH),
         eval_callback,

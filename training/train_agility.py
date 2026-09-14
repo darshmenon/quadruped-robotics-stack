@@ -155,9 +155,14 @@ def main():
         norm_path = args.vecnorm
         if norm_path is None:
             ckpt_stem = os.path.basename(args.resume).replace(".zip", "")
-            ckpt_steps = int(ckpt_stem.split("_steps")[0].split("_")[-1])
+            try:
+                ckpt_steps = int(ckpt_stem.split("_steps")[0].split("_")[-1])
+            except ValueError:
+                # Resuming from best_model.zip / *_final.zip etc. -- no step
+                # count in the name to match against.
+                ckpt_steps = -1
             candidates = glob.glob(os.path.join(CKPT_DIR, "vecnorm_*_steps.pkl"))
-            if candidates:
+            if candidates and ckpt_steps >= 0:
                 def _steps(p):
                     return int(os.path.basename(p).split("_steps")[0].split("_")[-1])
                 norm_path = min(candidates, key=lambda p: abs(_steps(p) - ckpt_steps))

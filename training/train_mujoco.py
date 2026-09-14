@@ -309,9 +309,15 @@ def main():
             # CheckpointCallback and VecNormSaveCallback save on independent
             # step counters)
             ckpt_stem   = os.path.basename(args.resume).replace(".zip", "")
-            ckpt_steps  = int(ckpt_stem.split("_steps")[0].split("_")[-1])
+            try:
+                ckpt_steps = int(ckpt_stem.split("_steps")[0].split("_")[-1])
+            except ValueError:
+                # Resuming from best_model.zip / go2_mujoco_final.zip etc. --
+                # no step count in the name to match against, fall through
+                # to the "no match found" warning below instead of crashing.
+                ckpt_steps = -1
             candidates  = glob.glob(os.path.join(ckpt_dir, "vecnorm_*_steps.pkl"))
-            if candidates:
+            if candidates and ckpt_steps >= 0:
                 def _steps(p):
                     return int(os.path.basename(p).split("_steps")[0].split("_")[-1])
                 norm_path = min(candidates, key=lambda p: abs(_steps(p) - ckpt_steps))

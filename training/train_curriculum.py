@@ -98,16 +98,30 @@ def _train_stage(stage: str, timesteps: int, n_envs: int, cmd, resume: str | Non
     if resume and os.path.exists(resume):
         # Load vecnorm from same dir as checkpoint when possible.
         ckpt_stem = os.path.basename(resume).replace(".zip", "")
-        ckpt_steps = int(ckpt_stem.split("_steps")[0].split("_")[-1])
-        candidates = glob.glob(os.path.join(
+        try:
+            ckpt_steps = int(ckpt_stem.split("_steps")[0].split("_")[-1])
+        except ValueError:
+            # Resuming from best_model.zip / *_final.zip etc. -- no step
+            # count in the name to rank candidates by.
+            ckpt_steps = -1
+        step_candidates = glob.glob(os.path.join(
             os.path.dirname(resume), "vecnorm_*_steps.pkl"))
-        if not candidates:
-            candidates = glob.glob(os.path.join(LOG_ROOT, "*", "vecnorm_final.pkl"))
         norm_path = None
-        if candidates:
+        if step_candidates and ckpt_steps >= 0:
             def _steps(p):
                 return int(os.path.basename(p).split("_steps")[0].split("_")[-1])
-            norm_path = min(candidates, key=lambda p: abs(_steps(p) - ckpt_steps))
+            norm_path = min(step_candidates, key=lambda p: abs(_steps(p) - ckpt_steps))
+        elif step_candidates:
+            norm_path = step_candidates[0]
+        else:
+            # No per-step vecnorm files (e.g. resuming from a previous
+            # stage's go2_..._final / best_model checkpoint, which only
+            # ever gets vecnorm_final.pkl) -- these aren't named
+            # "*_steps.pkl" so _steps() above would crash on them; there's
+            # normally just one, so no ranking needed.
+            fallback = glob.glob(os.path.join(LOG_ROOT, "*", "vecnorm_final.pkl"))
+            if fallback:
+                norm_path = fallback[0]
         if norm_path and os.path.exists(norm_path):
             vec_env = VecNormalize.load(norm_path, vec_env.venv)
             vec_env.training = True

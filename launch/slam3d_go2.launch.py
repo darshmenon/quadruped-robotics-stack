@@ -105,6 +105,19 @@ def _champ_actions(headless, world, explore, track_obstacles):
         parameters=[{"use_sim_time": True}],
     )
 
+    # RGB camera feed for the RViz picture-in-picture inset (see
+    # go2_gz.urdf.xacro's "camera" sensor). Unlike lidar3d's gpu_lidar,
+    # gz-sim's camera sensor publishes Image directly on its own <topic>,
+    # no nested "/points" subtopic.
+    camera_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        name="camera_bridge",
+        output="screen",
+        arguments=["/camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image"],
+        parameters=[{"use_sim_time": True}],
+    )
+
     # Started after CHAMP/the joint-trajectory adapter are up (t=13s in
     # champ_go2_gazebo.launch.py) and ground-truth odom has been publishing
     # for a few seconds (t=9s), so RTAB-Map's TF lookups don't race startup.
@@ -152,7 +165,7 @@ def _champ_actions(headless, world, explore, track_obstacles):
         )],
     )
 
-    return [champ_gazebo, points_bridge, rtabmap_slam, frontier_explorer, obstacle_tracker]
+    return [champ_gazebo, points_bridge, camera_bridge, rtabmap_slam, frontier_explorer, obstacle_tracker]
 
 
 def _nmpc_env_actions():

@@ -280,6 +280,82 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
+    - Alpha: 1
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -1
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rtabmap_rviz_plugins/MapCloud
+      Cloud decimation: 1
+      Cloud from scan: true
+      Cloud max depth (m): 0
+      Cloud min depth (m): 0
+      Cloud voxel size (m): 0.019999999552965164
+      Color: 255; 255; 255
+      Color Transformer: AxisColor
+      Download graph: false
+      Download map: false
+      Download namespace: rtabmap
+      Enabled: true
+      Filter ceiling (m): 0
+      Filter floor (m): 0
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 4096
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: MapCloud (accumulated, height-colored)
+      Node filtering angle (degrees): 30
+      Node filtering radius (m): 0
+      Position Transformer: XYZ
+      Size (Pixels): 3
+      Size (m): 0.019999999552965164
+      Style: Flat Squares
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /mapData
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+    - Alpha: 1
+      Class: rtabmap_rviz_plugins/MapGraph
+      Enabled: true
+      Global loop closure: 255; 0; 0
+      Landmark: 0; 128; 0
+      Local loop closure: 255; 255; 0
+      Merged neighbor: 255; 170; 0
+      Name: MapGraph (trajectory)
+      Neighbor: 255; 255; 255
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /mapGraph
+      User: 255; 0; 0
+      Value: true
+      Virtual: 255; 0; 255
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: robot camera
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /camera/image_raw
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 117; 135; 133

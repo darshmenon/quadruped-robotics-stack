@@ -68,6 +68,12 @@ RTABMAP_COMMON_PARAMS = {
     "Grid/3D": "false",            # projected 2D grid for the frontier explorer
     "Grid/CellSize": "0.05",
     "Grid/RangeMax": "20.0",
+    # lidar3d sits at body height looking mostly outward, so very few beams
+    # hit the ground near the robot -- without ray tracing, RTAB-Map only
+    # marks a cell free when a ground point lands in it, which leaves most
+    # driven-over cells occupied/unknown (Magi's magi_slam hit the same
+    # thing: 51%->100% of driven cells correctly freed once enabled).
+    "Grid/RayTracing": "true",
     # 16-channel vertical resolution is sparse enough that normal-based
     # ground segmentation sprinkles spurious "obstacle" cells on flat
     # ground -- filter isolated points before classification (same fix
@@ -133,7 +139,9 @@ def _champ_actions(headless, world, explore, track_obstacles):
             output="screen",
             parameters=[{
                 **RTABMAP_COMMON_PARAMS,
-                "frame_id": "base",
+                # base_footprint (go2_gz.urdf.xacro), not "base" -- keeps the
+                # map/grid z=0 origin at the ground instead of body height.
+                "frame_id": "base_footprint",
                 "odom_frame_id": "odom",
                 "map_frame_id": "map",
                 "database_path": "/tmp/go2_rtabmap/rtabmap_champ.db",

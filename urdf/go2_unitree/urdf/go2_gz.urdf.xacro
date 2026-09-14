@@ -29,7 +29,7 @@
   <!-- Publishes /world/<world>/model/<model>/joint_state (gz.msgs.Model)
        unconditionally every update, independent of ros2_control's
        controller_manager lifecycle. Launch files bridge this straight to
-       ROS /joint_states -- see launch/gazebo_go2.launch.py's bridge args. -->
+       ROS /joint_states, see launch/gazebo_go2.launch.py's bridge args. -->
   <gazebo>
     <plugin filename="libgz-sim-joint-state-publisher-system.so"
             name="gz::sim::systems::JointStatePublisher">
@@ -223,7 +223,7 @@
 
   <!-- Forward-facing RGB camera for the RViz picture-in-picture inset (see
        ros2/champ_navigation/rviz/slam.rviz's Image display). Native gz-sim
-       sensor, same style as the imu/lidar blocks above -- no gazebo_ros
+       sensor, same style as the imu/lidar blocks above, no gazebo_ros
        plugin (that's classic Gazebo only); bridge via ros_gz_bridge in
        launch/slam3d_go2.launch.py instead. -->
   <gazebo reference="base">
@@ -247,5 +247,20 @@
       </camera>
     </sensor>
   </gazebo>
+
+  <!-- Ground-projected frame for RTAB-Map (see slam3d_go2.launch.py's
+       frame_id). "base" sits at nominal_height=0.22m (config/go2_champ/
+       gait.yaml) above the ground, so using it directly as RTAB-Map's
+       frame_id would put the map/grid's z=0 origin at body height instead
+       of the ground, and the 2D occupancy grid then renders floating above
+       where the feet actually are. base_footprint is fixed (not measured
+       ride height) because SLAM needs a frame rigidly attached to the
+       robot, same fix as Magi's magi_slam (ali-pahlevani/Magi). -->
+  <link name="base_footprint"/>
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base"/>
+    <child link="base_footprint"/>
+    <origin xyz="0 0 -0.22" rpy="0 0 0"/>
+  </joint>
 
 </robot>

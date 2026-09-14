@@ -62,8 +62,13 @@ GAITS = {
 }
 
 
-# Speed-based auto-selection ignores stance poses (crouch/sit).
-_LOCOMOTION_GAITS = (Gait.STAND, Gait.WALK, Gait.TROT, Gait.PACE,
+# Speed-based auto-selection ignores stance poses (crouch/sit). select_gait
+# returns the first range match, and PACE's speed_range (0.4, 1.2) sits
+# entirely inside TROT's (0.35, 1.5) -- checking PACE first lets it claim
+# that overlap, leaving TROT the (0.35, 0.4) and (1.2, 1.5) slivers either
+# side; checking TROT first (the old order) made PACE unreachable for any
+# speed at all.
+_LOCOMOTION_GAITS = (Gait.STAND, Gait.WALK, Gait.PACE, Gait.TROT,
                      Gait.CANTER, Gait.BOUND, Gait.PRONK)
 
 

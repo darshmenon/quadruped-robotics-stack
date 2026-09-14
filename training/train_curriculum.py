@@ -101,18 +101,19 @@ def _train_stage(stage: str, timesteps: int, n_envs: int, cmd, resume: str | Non
         try:
             ckpt_steps = int(ckpt_stem.split("_steps")[0].split("_")[-1])
         except ValueError:
-            # Resuming from best_model.zip / *_final.zip etc. -- no step
-            # count in the name to rank candidates by.
-            ckpt_steps = -1
+            # best_model.zip / *_final.zip etc. -- no step count in the
+            # name, so fall back to matching by save time instead below.
+            ckpt_steps = None
         step_candidates = glob.glob(os.path.join(
             os.path.dirname(resume), "vecnorm_*_steps.pkl"))
         norm_path = None
-        if step_candidates and ckpt_steps >= 0:
+        if step_candidates and ckpt_steps is not None:
             def _steps(p):
                 return int(os.path.basename(p).split("_steps")[0].split("_")[-1])
             norm_path = min(step_candidates, key=lambda p: abs(_steps(p) - ckpt_steps))
         elif step_candidates:
-            norm_path = step_candidates[0]
+            resume_mtime = os.path.getmtime(resume)
+            norm_path = min(step_candidates, key=lambda p: abs(os.path.getmtime(p) - resume_mtime))
         else:
             # No per-step vecnorm files (e.g. resuming from a previous
             # stage's go2_..._final / best_model checkpoint, which only

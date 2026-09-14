@@ -312,15 +312,23 @@ def main():
             try:
                 ckpt_steps = int(ckpt_stem.split("_steps")[0].split("_")[-1])
             except ValueError:
-                # Resuming from best_model.zip / go2_mujoco_final.zip etc. --
-                # no step count in the name to match against, fall through
-                # to the "no match found" warning below instead of crashing.
-                ckpt_steps = -1
+                # best_model.zip / go2_mujoco_final.zip etc. -- no step count
+                # in the name to match against directly, but EvalCallback/
+                # model.save() write these right after the step-numbered
+                # checkpoint they correspond to, so the vecnorm saved
+                # closest in *time* to this file is still the right match --
+                # falling straight through to "no stats found" here throws
+                # away a perfectly good match and destabilizes the resume
+                # for no reason.
+                ckpt_steps = None
             candidates  = glob.glob(os.path.join(ckpt_dir, "vecnorm_*_steps.pkl"))
-            if candidates and ckpt_steps >= 0:
+            if candidates and ckpt_steps is not None:
                 def _steps(p):
                     return int(os.path.basename(p).split("_steps")[0].split("_")[-1])
                 norm_path = min(candidates, key=lambda p: abs(_steps(p) - ckpt_steps))
+            elif candidates:
+                resume_mtime = os.path.getmtime(args.resume)
+                norm_path = min(candidates, key=lambda p: abs(os.path.getmtime(p) - resume_mtime))
         if norm_path and os.path.exists(norm_path):
             vec_env = VecNormalize.load(norm_path, vec_env.venv)
             vec_env.norm_reward = True

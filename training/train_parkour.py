@@ -178,14 +178,17 @@ def main():
             try:
                 ckpt_steps = int(ckpt_stem.split("_steps")[0].split("_")[-1])
             except ValueError:
-                # Resuming from best_model.zip / *_final.zip etc. -- no step
-                # count in the name to match against.
-                ckpt_steps = -1
+                # best_model.zip / *_final.zip etc. -- no step count in the
+                # name, so fall back to matching by save time instead below.
+                ckpt_steps = None
             candidates = glob.glob(os.path.join(CKPT_DIR, "vecnorm_*_steps.pkl"))
-            if candidates and ckpt_steps >= 0:
+            if candidates and ckpt_steps is not None:
                 def _steps(p):
                     return int(os.path.basename(p).split("_steps")[0].split("_")[-1])
                 norm_path = min(candidates, key=lambda p: abs(_steps(p) - ckpt_steps))
+            elif candidates:
+                resume_mtime = os.path.getmtime(args.resume)
+                norm_path = min(candidates, key=lambda p: abs(os.path.getmtime(p) - resume_mtime))
         if norm_path and os.path.exists(norm_path):
             vec_env = VecNormalize.load(norm_path, vec_env.venv)
             vec_env.norm_reward = True

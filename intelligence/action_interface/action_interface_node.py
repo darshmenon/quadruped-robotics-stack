@@ -76,7 +76,17 @@ WAVE_SEQUENCE = [
     (0.35, -0.24, 0.15, 0.02, 0.35),
     (0.35, 0.24, 0.15, 0.02, 0.35),
 ]
-ARM_STOW_TARGET = (0.2, 0.0, -0.05)  # roughly matches arm_reach_node.STOW_POSE
+# NOT arm_reach_node.STOW_POSE's actual fingertip position -- that pose
+# tucks the arm behind the mount (fingertip x<0), which needs a base_joint
+# angle of ~180 deg to express as an /arm/target point; arm_ik.inverse_
+# kinematics only solves the forward cone (|atan2(y,x)| <= 90 deg, see its
+# docstring), so it will always return None for the real stow point and
+# arm_reach_node just holds the last wave waypoint forever instead of
+# re-stowing (silently -- only a log warning, easy to miss). (0.2, 0.0,
+# -0.05) had the same problem: also outside the reachable cone. This is the
+# closest-in, best-joint-margin reachable point found near the old target,
+# not a stow pose -- true re-stow isn't reachable through this topic at all.
+ARM_STOW_TARGET = (0.41, 0.0, -0.22)
 
 VALID_ACTIONS = sorted(set(POSE_ACTIONS) | set(VELOCITY_ACTIONS) | {"stop", "wave_hand"})
 
@@ -146,7 +156,7 @@ class ActionInterfaceNode(Node):
             self._active = None
         elif action in VELOCITY_ACTIONS:
             vx, wz, default_s = VELOCITY_ACTIONS[action]
-            seconds = min(float(duration), MAX_DURATION) if duration else default_s
+            seconds = min(float(duration), MAX_DURATION) if duration is not None else default_s
             seconds = max(0.0, seconds)
             self._velocity_twist = Twist(linear=Vector3(x=vx, y=0.0, z=0.0), angular=Vector3(x=0.0, y=0.0, z=wz))
             self._velocity_until = self.get_clock().now().nanoseconds / 1e9 + seconds

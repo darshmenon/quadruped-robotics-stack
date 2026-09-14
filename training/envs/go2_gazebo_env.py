@@ -206,9 +206,19 @@ class Go2GazeboEnv(gym.Env):
     def _build_obs(self):
         ang_vel, quat, jpos, jvel = self._node.get_obs_data()
         w, x, y, z = quat
+        # Matches go2_mujoco_env.py's _gravity_vec() exactly, cross terms
+        # included -- that formula has negated x/y signs relative to the
+        # true projected gravity vector (verified against MuJoCo's own xmat;
+        # introduced by commit 4345778, "fix gravity projection", which was
+        # itself the bug). Every MuJoCo checkpoint ever trained (including
+        # legs_only, the one meant to load here) learned balance behavior
+        # against that flipped convention, so this env must reproduce the
+        # same flip rather than the physically correct one, or a legs_only
+        # checkpoint sees a mirrored tilt reading the moment it's deployed
+        # here -- which is the whole point of legs_only matching this env.
         gravity = np.array([
-            2 * (-z * x + w * y),
-            -2 * (z * y + w * x),
+            2 * (-z * x - w * y),
+            -2 * (z * y - w * x),
             1 - 2 * (w * w + z * z),
         ], dtype=np.float32)
         cmd_scaled = self.cmd * np.array([2.0, 2.0, 0.25], dtype=np.float32)

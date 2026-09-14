@@ -33,7 +33,9 @@ ACT_SCALE = 0.25
 EPISODE_LEN_S = 20.0
 CTRL_DT = 0.02  # 50 Hz
 
-# go2 joint names (matches go2 URDF and ros2_control config)
+# go2 joint names (matches go2 URDF and ros2_control config). Leg-by-leg
+# order -- used for observations (jpos in _build_obs), matching qpos's
+# leg-by-leg order in go2_mujoco_env.py's DEFAULT_QPOS.
 CHAMP_JOINTS = [
     "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
     "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
@@ -46,6 +48,26 @@ DEFAULT_QPOS = np.array([
    -0.1,  0.8, -1.5,   # RF
     0.1,  1.0, -1.5,   # LH
    -0.1,  1.0, -1.5,   # RH
+], dtype=np.float32)
+
+# Action order: grouped by joint type across all 4 legs, matching
+# go2_mujoco_env.py's ACT_DEFAULT / <actuator> declaration order exactly --
+# NOT leg-by-leg like CHAMP_JOINTS/DEFAULT_QPOS above (those are for
+# observations). A legs_only-trained policy's 12-dim action vector is
+# indexed this way; previously step() applied it through CHAMP_JOINTS
+# (leg-by-leg) instead, so 10 of 12 actions landed on the wrong joint --
+# e.g. index 1 ("FR_hip" in the trained policy's own frame) drove
+# FL_thigh_joint here instead. Confirmed by direct comparison against
+# go2_mujoco_env.py's ACT_DEFAULT ordering comment.
+ACT_JOINT_ORDER = [
+    "FL_hip_joint", "FR_hip_joint", "RL_hip_joint", "RR_hip_joint",
+    "FL_thigh_joint", "FR_thigh_joint", "RL_thigh_joint", "RR_thigh_joint",
+    "FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint",
+]
+ACT_DEFAULT_QPOS = np.array([
+    0.1, -0.1,  0.1, -0.1,
+    0.8,  0.8,  1.0,  1.0,
+   -1.5, -1.5, -1.5, -1.5,
 ], dtype=np.float32)
 
 
@@ -104,8 +126,8 @@ class _Go2RosNode(Node):
             lv = msg.twist.twist.linear
             self.lin_vel[:] = [lv.x, lv.y, lv.z]
 
-    def send_action(self, target_pos):
-        for i, name in enumerate(CHAMP_JOINTS):
+    def send_action(self, target_pos, joint_order=CHAMP_JOINTS):
+        for i, name in enumerate(joint_order):
             msg = Float64()
             msg.data = float(target_pos[i])
             self._joint_pubs[name].publish(msg)
@@ -249,8 +271,12 @@ class Go2GazeboEnv(gym.Env):
 
     def step(self, action):
         action = np.clip(action, -1.0, 1.0).astype(np.float32)
-        target = DEFAULT_QPOS + action * ACT_SCALE
-        self._node.send_action(target)
+        # ACT_DEFAULT_QPOS/ACT_JOINT_ORDER, not DEFAULT_QPOS/CHAMP_JOINTS --
+        # the action vector is in actuator order (see ACT_JOINT_ORDER
+        # comment above), a different ordering than the leg-by-leg one used
+        # for observations.
+        target = ACT_DEFAULT_QPOS + action * ACT_SCALE
+        self._node.send_action(target, ACT_JOINT_ORDER)
         time.sleep(CTRL_DT)
 
         self._prev_action = action.copy()

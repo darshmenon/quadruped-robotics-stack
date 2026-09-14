@@ -2,6 +2,7 @@
 
 import os
 import sys
+from collections import deque
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -104,6 +105,13 @@ TARGET_HEIGHT = 0.27  # nominal base height above ground while standing
 ALIVE_BONUS  = 0.3    # per-step credit for still standing, so ending an
                        # episode early is never a shortcut to avoid penalties
 FALL_PENALTY = -8.0    # one-time hit applied on the step that trips termination
+
+# Window for the stall-detection displacement estimate (see is_stalling in
+# _compute_reward) -- 50 steps at 50Hz control = ~1.0s. Long enough to
+# average out a full gait cycle (or several -- GAIT_FREQ_RANGE below is
+# 1.5-3.5Hz, i.e. 0.29-0.67s periods) or a slower body-rocking motion, so
+# only genuine sustained displacement counts as "not stalling".
+POS_HISTORY_LEN = 50
 
 # arm_base's pos= in go2_scene.xml, i.e. where the arm mounts relative to the
 # "base" body -- reach targets are sampled around this point, in the same
@@ -307,6 +315,7 @@ class Go2MujocoEnv(gym.Env):
         self._last_contacts = np.zeros(4, dtype=bool)
         self._foot_vel_buf = np.zeros(6, dtype=np.float64)
         self._last_push = np.zeros(2, dtype=np.float32)
+        self._pos_history = deque(maxlen=POS_HISTORY_LEN)
 
         if self.legs_only:
             obs_dim = 45  # 3 ang_vel + 3 gravity + 3 cmd + 12 dof_pos + 12 dof_vel + 12 prev_action
@@ -482,8 +491,32 @@ class Go2MujocoEnv(gym.Env):
         # active must never out-earn walking, no matter how forgiving the
         # tracking kernel above is (previously the policy converged to
         # standing still — see README "Known issue").
+        #
+        # actual_speed used to be instantaneous hypot(lin_vel[0], lin_vel[1]),
+        # which a later checkpoint learned to game directly: violently
+        # rocking the base back and forth (no net displacement at all --
+        # confirmed walk_dist=0.00m over full episodes) still produces a
+        # large instantaneous speed sample on most steps, so is_stalling
+        # almost never fired even though the robot never actually walked.
+        # That let reach/reach_dense/reach_bonus/alive run essentially
+        # unconditionally once the arm-reach fix made them worth chasing,
+        # inflating eval reward (822 -> 2065+) via a policy with a good arm
+        # and zero locomotion. A short EMA on the velocity vector isn't
+        # enough either -- the rocking's period can be slower than a short
+        # filter's window (confirmed by tracing it: the smoothed estimate
+        # still swung past the threshold in sustained multi-step runs, one
+        # direction then the other). Measuring actual net base displacement
+        # over a full ~1s window (POS_HISTORY_LEN, long enough to average
+        # out a full gait cycle or several) is immune to this regardless of
+        # the oscillation's period -- any bounded back-and-forth motion
+        # nets to ~0 displacement over the window, so only real sustained
+        # progress clears the threshold.
+        base_xy = (float(d.qpos[0]), float(d.qpos[1]))
+        old_x, old_y = self._pos_history[0]
+        window_s = len(self._pos_history) * CTRL_DT
         cmd_speed = float(np.hypot(self.cmd[0], self.cmd[1]))
-        actual_speed = float(np.hypot(lin_vel[0], lin_vel[1]))
+        actual_speed = float(np.hypot(base_xy[0] - old_x, base_xy[1] - old_y)) / max(window_s, CTRL_DT)
+        self._pos_history.append(base_xy)
         is_stalling = cmd_speed > 0.15 and actual_speed < 0.3 * cmd_speed
         r_stall = -0.6 if is_stalling else 0.0
 
@@ -812,6 +845,12 @@ class Go2MujocoEnv(gym.Env):
         self._step_count = 0
         self._steps_since_push = 0
         self._last_push[:] = 0.0
+        # Prefilled with the reset stance's own position (not cleared empty)
+        # so is_stalling has a well-defined displacement baseline from step 1
+        # -- the window grows against this fixed start until POS_HISTORY_LEN
+        # steps in, then rolls normally.
+        self._pos_history.clear()
+        self._pos_history.append((float(self.data.qpos[0]), float(self.data.qpos[1])))
         self._last_episode_steps = 0
         self._stall_steps = 0
         self._gait_index = 0.0

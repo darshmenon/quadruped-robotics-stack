@@ -60,20 +60,26 @@ class RewardComponentCallback(BaseCallback):
 
 
 class VecNormSaveCallback(BaseCallback):
-    def __init__(self, vec_env: VecNormalize, save_path: str, save_freq: int,
-                 curriculum_path: str):
+    def __init__(self, save_path: str, save_freq: int, curriculum_path: str):
         super().__init__()
-        self._vec_env = vec_env
         self._save_path = save_path
         self._save_freq = save_freq
         self._curriculum_path = curriculum_path
 
     def _on_step(self) -> bool:
         if self.num_timesteps % self._save_freq < self.training_env.num_envs:
+            # Fetched fresh every call via SB3's own accessor, not captured
+            # once at construction -- a captured reference stays pointing at
+            # whatever VecNormalize existed before any --resume reassignment
+            # replaced it, which is never stepped again and so saves frozen
+            # default stats (count=1e-4, mean=0, var=1) forever instead of
+            # the real, live-accumulating normalization (see train_mujoco.py
+            # for the full incident this was ported from).
+            vec_env = self.model.get_vec_normalize_env()
             path = os.path.join(
                 self._save_path, f"vecnorm_{self.num_timesteps}_steps.pkl")
-            self._vec_env.save(path)
-            level = float(np.mean(self._vec_env.get_attr("curriculum_level")))
+            vec_env.save(path)
+            level = float(np.mean(vec_env.get_attr("curriculum_level")))
             with open(self._curriculum_path, "w") as f:
                 f.write(str(level))
         return True
@@ -170,7 +176,7 @@ def main():
         CheckpointCallback(
             save_freq=max(50_000 // args.n_envs, 1), save_path=ckpt_dir, name_prefix="go2_recovery"),
         VecNormSaveCallback(
-            vec_env, ckpt_dir, save_freq=50_000,
+            ckpt_dir, save_freq=50_000,
             curriculum_path=curriculum_path),
         eval_callback,
     ]

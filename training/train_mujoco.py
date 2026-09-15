@@ -71,20 +71,33 @@ class VecNormSaveCallback(BaseCallback):
     it'll actually be resumed from -- previously that file was only written
     once, after model.learn() returned normally."""
 
-    def __init__(self, vec_env: VecNormalize, save_path: str, save_freq: int,
-                 curriculum_path: str):
+    def __init__(self, save_path: str, save_freq: int, curriculum_path: str):
         super().__init__()
-        self._vec_env         = vec_env
         self._save_path       = save_path
         self._save_freq       = save_freq
         self._curriculum_path = curriculum_path
 
     def _on_step(self) -> bool:
         if self.num_timesteps % self._save_freq < self.training_env.num_envs:
+            # Fetched fresh from the model every call, not captured once at
+            # construction time -- a --resume replaces the module-level
+            # vec_env with a brand-new VecNormalize.load(...) object (see
+            # main()'s `if args.resume:` block), but this callback is built
+            # from the callbacks list *before* that reassignment runs. A
+            # captured reference kept pointing at the original, pre-resume
+            # object, which is never stepped again once training starts (so
+            # its obs_rms stays frozen at its just-constructed defaults:
+            # count=1e-4, mean=0, var=1) -- every vecnorm_*_steps.pkl saved
+            # during any resumed run silently held these no-op stats instead
+            # of the real, live-accumulating normalization the policy was
+            # actually trained against. get_vec_normalize_env() is SB3's own
+            # dynamic accessor (see CheckpointCallback.save_vecnormalize)
+            # and always resolves to whatever the model is currently using.
+            vec_env = self.model.get_vec_normalize_env()
             path = os.path.join(self._save_path,
                                 f"vecnorm_{self.num_timesteps}_steps.pkl")
-            self._vec_env.save(path)
-            level = float(np.mean(self._vec_env.get_attr("curriculum_level")))
+            vec_env.save(path)
+            level = float(np.mean(vec_env.get_attr("curriculum_level")))
             with open(self._curriculum_path, "w") as f:
                 f.write(str(level))
         return True
@@ -104,15 +117,19 @@ class FreezeObsNormCallback(BaseCallback):
     become trustworthy again.
     """
 
-    def __init__(self, vec_env: VecNormalize, freeze_at: int):
+    def __init__(self, freeze_at: int):
         super().__init__()
-        self._vec_env = vec_env
         self._freeze_at = freeze_at
         self._frozen = False
 
     def _on_step(self) -> bool:
         if not self._frozen and self.num_timesteps >= self._freeze_at:
-            self._vec_env.training = False
+            # Same stale-reference bug as VecNormSaveCallback above (see its
+            # comment) -- a vec_env captured at construction time, on a
+            # --resume run, is not the object actually being trained, so
+            # setting .training = False on it did nothing to real training
+            # while this callback happily printed a false success message.
+            self.model.get_vec_normalize_env().training = False
             self._frozen = True
             print(f"Froze VecNormalize obs/reward stats at num_timesteps={self.num_timesteps}")
         return True
@@ -299,12 +316,12 @@ def main():
         # of real progress to a mid-run CUDA crash before this was caught.
         CheckpointCallback(save_freq=max(50_000 // args.n_envs, 1), save_path=ckpt_dir,
                            name_prefix="go2_mujoco"),
-        VecNormSaveCallback(vec_env, ckpt_dir, save_freq=50_000,
+        VecNormSaveCallback(ckpt_dir, save_freq=50_000,
                             curriculum_path=curriculum_path),
         eval_callback,
     ]
     if args.freeze_obs_at is not None:
-        callbacks.append(FreezeObsNormCallback(vec_env, args.freeze_obs_at))
+        callbacks.append(FreezeObsNormCallback(args.freeze_obs_at))
 
     if args.resume:
         norm_path = args.vecnorm

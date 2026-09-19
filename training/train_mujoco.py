@@ -173,6 +173,15 @@ def main():
                         help="override the resumed model's learning rate (fresh runs use 3e-4)")
     parser.add_argument("--n_epochs", type=int, default=None,
                         help="override the resumed model's PPO epochs per update (fresh runs use 10)")
+    parser.add_argument("--ent_coef", type=float, default=None,
+                        help="override the resumed model's entropy coefficient (fresh runs use "
+                             "0.005) -- a resumed model otherwise keeps whatever ent_coef it was "
+                             "saved with, so this is the only way to rein in action std once it's "
+                             "drifted high (observed climbing 3.3 -> 10+ with no sign of decaying "
+                             "on its own after the stall-detection reward fix, alongside a growing "
+                             "gap between strong noisy-rollout reward and much weaker deterministic "
+                             "eval reward -- the policy's actual mean action, not just its samples, "
+                             "needs to consolidate)")
     parser.add_argument("--curriculum_level", type=float, default=None,
                         help="starting curriculum level (0-1); defaults to the value saved by "
                              "the previous run, or 0.0 if none was saved")
@@ -366,6 +375,9 @@ def main():
         if args.n_epochs is not None:
             model.n_epochs = args.n_epochs
             print(f"Overrode n_epochs={args.n_epochs}")
+        if args.ent_coef is not None:
+            model.ent_coef = args.ent_coef
+            print(f"Overrode ent_coef={args.ent_coef}")
         # checkpoints saved before this fix have target_kl=None baked in from
         # PPO.load(); reapply it so resumed runs get the same early-stopping
         # protection as fresh ones (see comment on the fresh-init PPO() call).

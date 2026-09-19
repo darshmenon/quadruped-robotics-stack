@@ -4,10 +4,10 @@ This repo already has the hard base: Go2 meshes, Gazebo Harmonic launch files, M
 
 ## Current Active Work
 
-- Finish and verify the uncommitted 3D SLAM obstacle-tracking path: `scripts/obstacle_tracker_go2.py`, `launch/slam3d_go2.launch.py`, and `training/envs/go2_gz_world_room.sdf`.
+- Finish and verify the 3D SLAM obstacle-tracking path: `scripts/obstacle_tracker_go2.py`, `launch/slam3d_go2.launch.py`, and `training/envs/go2_gz_world_room.sdf`.
 - Validate the Gazebo RL isolation changes: `ROS_DOMAIN_ID` and `GZ_PARTITION` now isolate training sessions from SLAM/Nav2 sessions.
-- Decide whether vendored `ros2/gz_ros2_control/` should stay in this repo or be documented as an external dependency.
-- Avoid committing generated log pointers such as `ros2/log/latest_build` unless they are intentionally tracked.
+- `ros2/gz_ros2_control/` stays vendored in-repo (decided).
+- `ros2/log/latest` and `ros2/log/latest_build` were tracked generated symlinks; untracked them (`ros2/log/` was already gitignored, they predated the rule).
 
 ## Best Next Features
 

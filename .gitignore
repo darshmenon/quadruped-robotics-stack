@@ -51,3 +51,6 @@ ros2/quad_sdk/robot_driver/log/list_*/
 ros2/quad_sdk_external/ipopt_build/
 ros2/quad_sdk_external/local/
 ros2/quad_sdk_external/rbdl-orb/build/
+
+# Local editor config
+.vscode/

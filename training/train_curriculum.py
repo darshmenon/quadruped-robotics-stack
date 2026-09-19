@@ -159,7 +159,12 @@ def _train_stage(stage: str, timesteps: int, n_envs: int, cmd, resume: str | Non
     model.learn(
         total_timesteps=timesteps,
         callback=CheckpointCallback(
-            save_freq=50_000, save_path=ckpt_dir, name_prefix=f"go2_{stage}"),
+            # CheckpointCallback counts n_calls (one per vectorized step),
+            # not raw timesteps -- undivided this only saves every
+            # 50_000*n_envs steps (see the same fix already applied to
+            # train_mujoco.py/train_agility.py/train_parkour.py/
+            # train_recovery.py/train_stairs.py).
+            save_freq=max(50_000 // n_envs, 1), save_path=ckpt_dir, name_prefix=f"go2_{stage}"),
         reset_num_timesteps=reset_timesteps,
         progress_bar=True,
     )

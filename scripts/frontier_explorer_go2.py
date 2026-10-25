@@ -41,6 +41,9 @@ Usage:
 
 import json
 import math
+import subprocess
+import time
+from pathlib import Path
 
 import numpy as np
 import rclpy
@@ -62,6 +65,7 @@ GOAL_TOLERANCE = 0.45    # m, close enough to a frontier goal to replan
 BLOCKED_LOOKAHEAD = 0.5  # m, don't drive forward if this close a cell is occupied
 NO_FRONTIER_TIMEOUT = 30.0  # s with no frontier found before declaring done
 OBSTACLE_STALE_TIMEOUT = 2.0  # s, ignore /obstacle_tracker/state once this stale
+MAPS_DIR = Path(__file__).resolve().parents[1] / "maps" / "generated"
 
 
 class FrontierExplorer(Node):
@@ -93,6 +97,8 @@ class FrontierExplorer(Node):
         self.declare_parameter('obstacle_state_topic', '/obstacle_tracker/state')
         self.declare_parameter('obstacle_avoid_radius', 0.6)
         self.declare_parameter('obstacle_speed_min', 0.05)
+        self.declare_parameter('save_map', True)
+        self.declare_parameter('map_save_path', '')  # '' -> auto-named under maps/generated/
 
         self.map_frame = self.get_parameter('map_frame').value
         self.base_frame = self.get_parameter('base_frame').value
@@ -106,6 +112,9 @@ class FrontierExplorer(Node):
         self.goal_exclude_ttl = self.get_parameter('goal_exclude_ttl').value
         self.obstacle_avoid_radius = self.get_parameter('obstacle_avoid_radius').value
         self.obstacle_speed_min = self.get_parameter('obstacle_speed_min').value
+        self.save_map = self.get_parameter('save_map').value
+        self.map_save_path = self.get_parameter('map_save_path').value
+        self.map_saved = False
         self.published_goal_xy = None  # last goal actually sent in nmpc_goal mode
 
         self.tf_buffer = Buffer()
@@ -217,6 +226,34 @@ class FrontierExplorer(Node):
                                 BLOCKED_LOOKAHEAD, tracks, obstacle_margin=0.15,
                                 occupied_min=OCCUPIED_MIN)
 
+    def _save_map(self):
+        """Fire-and-forget nav2_map_server map_saver_cli against the live /map.
+
+        Runs detached (not waited on) so a slow disk/rtabmap hiccup can't
+        stall this node's control-loop timer -- exploration has already
+        finished by the time this fires, so there's nothing left to block.
+        """
+        if self.map_save_path:
+            out_path = Path(self.map_save_path)
+        else:
+            MAPS_DIR.mkdir(parents=True, exist_ok=True)
+            out_path = MAPS_DIR / f"go2_room_{time.strftime('%Y%m%d_%H%M%S')}"
+        self.get_logger().info(f'saving map to {out_path}.pgm/.yaml')
+        try:
+            subprocess.Popen([
+                'ros2', 'run', 'nav2_map_server', 'map_saver_cli',
+                '-f', str(out_path), '--ros-args', '-p', 'use_sim_time:=true',
+                # RTAB-Map republishes /map continuously with volatile QoS
+                # (no transient_local), unlike slam_toolbox/gmapping which
+                # latch it -- map_saver_cli defaults to expecting
+                # transient_local and otherwise never receives a single
+                # message (confirmed: it exits with "Failed to spin map
+                # subscription" and writes nothing).
+                '-p', 'map_subscribe_transient_local:=false',
+            ])
+        except OSError as exc:
+            self.get_logger().error(f'map_saver_cli failed to start: {exc}')
+
     def _step(self):
         msg = self.latest_map
         if msg is None:
@@ -256,6 +293,9 @@ class FrontierExplorer(Node):
                 self.get_logger().info(
                     f'no frontiers left for {elapsed:.0f}s -- exploration complete, stopping.',
                     throttle_duration_sec=NO_FRONTIER_TIMEOUT)
+                if self.save_map and not self.map_saved:
+                    self.map_saved = True  # fire once, even if a stray frontier reappears later
+                    self._save_map()
             if self.control_mode == 'cmd_vel':
                 self.cmd_pub.publish(Twist())
             return
@@ -306,7 +346,8 @@ def main():
         if node.control_mode == 'cmd_vel':
             node.cmd_pub.publish(Twist())
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

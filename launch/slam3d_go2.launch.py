@@ -317,7 +317,7 @@ def _nmpc_actions(nmpc_gui_flag, nmpc_world, explore, track_obstacles):
                  "-p", "use_sim_time:=true",
                  "-p", "control_mode:=nmpc_goal",
                  "-p", "base_frame:=body",
-                 "-p", "goal_state_topic:=/robot_1/goal_state"],
+                 "-p", "goal_state_topic:=/robot_1/clicked_point"],
             output="screen",
         )],
     )

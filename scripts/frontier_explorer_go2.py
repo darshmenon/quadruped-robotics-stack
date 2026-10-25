@@ -36,7 +36,7 @@ Usage:
     python3 scripts/frontier_explorer_go2.py --ros-args -p use_sim_time:=true
     python3 scripts/frontier_explorer_go2.py --ros-args -p use_sim_time:=true \\
         -p control_mode:=nmpc_goal -p base_frame:=body \\
-        -p goal_state_topic:=/robot_1/goal_state
+        -p goal_state_topic:=/robot_1/clicked_point
 """
 
 import json
@@ -77,7 +77,7 @@ class FrontierExplorer(Node):
         self.declare_parameter('angular_speed', 0.6)
         self.declare_parameter('control_period', 0.1)
         self.declare_parameter('control_mode', 'cmd_vel')  # 'cmd_vel' or 'nmpc_goal'
-        self.declare_parameter('goal_state_topic', '/robot_1/goal_state')
+        self.declare_parameter('goal_state_topic', '/robot_1/clicked_point')
         # Standoff pulled a chosen frontier goal back toward the robot, off
         # the free/unknown boundary the wavefront search necessarily leaves
         # it on (rosnav's goal_pullback/frontier_clearance_radius default to

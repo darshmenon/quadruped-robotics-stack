@@ -187,7 +187,9 @@ class GlobalBodyPlan {
   rclcpp::Time computed_timestamp_;
 
   /// Time stamp for when plan was published (not unique)
-  rclcpp::Time published_timestamp_;
+  // Must share node_->now()'s ROS time source or the subtraction in
+  // goalStateCallback throws before the first plan has been published.
+  rclcpp::Time published_timestamp_{0, 0, RCL_ROS_TIME};
 
   /// Std vector containing the interpolated time data
   std::vector<double> t_plan_;

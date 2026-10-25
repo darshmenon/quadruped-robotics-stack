@@ -64,7 +64,9 @@ class Go2MujocoVisionEnv(Go2MujocoEnv):
                              use_curriculum=use_curriculum,
                              initial_curriculum_level=initial_curriculum_level,
                              gait_conditioned=gait_conditioned,
-                             gait_name=gait_name)
+                             gait_name=gait_name,
+                             # rough scene has no arm joints (nq == 19)
+                             legs_only=True)
         finally:
             base_module.SCENE_XML = original_scene
 

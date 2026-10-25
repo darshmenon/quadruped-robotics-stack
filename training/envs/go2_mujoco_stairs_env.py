@@ -47,6 +47,7 @@ class Go2MujocoStairsEnv(Go2MujocoEnv):
         disable_arm_reach=True,
         gait_conditioned=False,
         gait_name="trotting",
+        legs_only=False,
     ):
         self.use_vision = use_vision
         self.disable_arm_reach = disable_arm_reach
@@ -64,6 +65,7 @@ class Go2MujocoStairsEnv(Go2MujocoEnv):
                 initial_curriculum_level=initial_curriculum_level,
                 gait_conditioned=gait_conditioned,
                 gait_name=gait_name,
+                legs_only=legs_only,
             )
         finally:
             base_module.SCENE_XML = original_scene

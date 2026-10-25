@@ -325,7 +325,8 @@ class Go2MujocoEnv(gym.Env):
         self.observation_space = spaces.Box(-obs_high, obs_high, dtype=np.float32)
         self.action_space = spaces.Box(
             low=-1.0, high=1.0, shape=(12 if self.legs_only else ACT_DIM,), dtype=np.float32)
-        self._act_default = ACT_DEFAULT.copy()
+        # Legs-only scenes (rough terrain) have no arm actuators: nu == 12.
+        self._act_default = ACT_DEFAULT[:self.model.nu].copy()
 
     # ------------------------------------------------------------------ #
 
@@ -831,7 +832,8 @@ class Go2MujocoEnv(gym.Env):
         # scale would swing the finger joints (0.025m full range) past their
         # limits.
         self.data.qpos[7:19] = DEFAULT_QPOS[:12] + (self.np_random.random(12) - 0.5) * 0.1
-        self.data.qpos[19:]  = DEFAULT_QPOS[12:]
+        # Legs-only scenes (rough terrain) have no arm joints: nq == 19.
+        self.data.qpos[19:]  = DEFAULT_QPOS[12:12 + self.model.nq - 19]
         self.data.ctrl[:]   = self._act_default
         mujoco.mj_forward(self.model, self.data)
 

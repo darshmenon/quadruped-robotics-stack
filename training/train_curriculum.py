@@ -52,7 +52,10 @@ def _make_stage_env(stage: str, cmd, rank, seed, curriculum_level,
             env = Go2MujocoEnv(
                 cmd=cmd, render_mode=None, randomize_domain=True,
                 use_curriculum=True, initial_curriculum_level=curriculum_level,
-                gait_conditioned=gait, push_robots=True)
+                gait_conditioned=gait, push_robots=True,
+                # legs-only in every stage so action/obs dims match across
+                # the flat -> rough -> stairs resume chain
+                legs_only=True)
         elif stage == "rough":
             env = Go2MujocoVisionEnv(
                 cmd=cmd, render_mode=None, randomize_domain=True,
@@ -64,7 +67,7 @@ def _make_stage_env(stage: str, cmd, rank, seed, curriculum_level,
                 cmd=cmd, render_mode=None, randomize_domain=True,
                 use_curriculum=True, use_vision=False,
                 initial_curriculum_level=curriculum_level,
-                gait_conditioned=gait)
+                gait_conditioned=gait, legs_only=True)
         else:
             raise ValueError(f"unknown stage {stage}")
         if obs_history > 1:
@@ -124,7 +127,7 @@ def _train_stage(stage: str, timesteps: int, n_envs: int, cmd, resume: str | Non
             if fallback:
                 norm_path = fallback[0]
         if norm_path and os.path.exists(norm_path):
-            vec_env = VecNormalize.load(norm_path, vec_env.venv)
+            vec_env = VecNormalize.load(norm_path, vec_env)
             vec_env.training = True
             vec_env.norm_reward = True
             print(f"Loaded VecNormalize from {norm_path}")

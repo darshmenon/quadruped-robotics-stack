@@ -46,18 +46,19 @@ from envs.privileged_obs_wrapper import PrivilegedObsWrapper
 
 
 def _make_env(scene: str, cmd, use_vision: bool, gait_conditioned=False,
-              gait_name="trotting", obs_history=1, asymmetric=False):
+              gait_name="trotting", obs_history=1, asymmetric=False,
+              legs_only=False):
     kwargs = dict(
         cmd=cmd, render_mode=None, randomize_domain=False,
         use_curriculum=False, gait_conditioned=gait_conditioned,
         gait_name=gait_name,
     )
     if scene == "stairs":
-        env = Go2MujocoStairsEnv(**kwargs, use_vision=use_vision)
+        env = Go2MujocoStairsEnv(**kwargs, use_vision=use_vision, legs_only=legs_only)
     elif scene == "rough":
         env = Go2MujocoVisionEnv(**kwargs, use_vision=use_vision)
     else:
-        env = Go2MujocoEnv(**kwargs)
+        env = Go2MujocoEnv(**kwargs, legs_only=legs_only)
     if obs_history > 1:
         env = ObsHistoryWrapper(env, history_len=obs_history)
     if asymmetric:
@@ -110,9 +111,14 @@ def _run_eval(env, model, core, episodes: int, max_steps: int):
         ep_reward = 0.0
         steps = 0
         fell = False
+        x1, y1 = x0, y0
         for steps in range(1, max_steps + 1):
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, done, infos = env.step(action)
+            # DummyVecEnv auto-resets on done, so read the pose only while the
+            # episode is still running or the final position is the reset pose.
+            if not done[0]:
+                x1, y1 = _base_xy(core)
             ep_reward += float(reward[0])
             if done[0]:
                 info = infos[0] if infos else {}
@@ -120,7 +126,6 @@ def _run_eval(env, model, core, episodes: int, max_steps: int):
                 if steps < max_steps * 0.9 and not info.get("TimeLimit.truncated", False):
                     fell = True
                 break
-        x1, y1 = _base_xy(core)
         dist = float(np.hypot(x1 - x0, y1 - y0))
         mean_vx = dist / max(steps * SIM_DT * CTRL_DECIMATION, 1e-6)
         results.append(
@@ -170,6 +175,9 @@ def main():
                         choices=["trotting", "bounding", "pacing", "pronking"])
     parser.add_argument("--obs-history", type=int, default=1, metavar="N",
                         help="must match the history length used at train time")
+    parser.add_argument("--legs-only", action="store_true",
+                        help="12-dim legs-only policy (curriculum checkpoints); "
+                             "the rough scene is always legs-only")
     parser.add_argument("--asymmetric", action="store_true",
                         help="wrap with PrivilegedObsWrapper (DreamWaQ-lite checkpoints)")
     parser.add_argument(
@@ -199,7 +207,8 @@ def main():
     use_vision = not args.blind
     raw = _make_env(args.scene, cmd, use_vision=use_vision,
                     gait_conditioned=args.gait, gait_name=args.gait_name,
-                    obs_history=args.obs_history, asymmetric=args.asymmetric)
+                    obs_history=args.obs_history, asymmetric=args.asymmetric,
+                    legs_only=args.legs_only)
     env = DummyVecEnv([lambda: Monitor(raw)])
 
     # auto-detect vecnorm stats next to the checkpoint

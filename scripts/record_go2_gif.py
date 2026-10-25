@@ -41,6 +41,9 @@ def main():
     ap.add_argument("--width", type=int, default=560)
     ap.add_argument("--fps", type=float, default=8.0)
     ap.add_argument("--max-mb", type=float, default=3.0)
+    ap.add_argument("--stack-cmd", default=None,
+                    help="shell command to run instead of the indoor autonomy launch, "
+                         "e.g. './scripts/walk_quadsdk_go2.sh 3.0 0.0 headless go2_room.sdf'")
     ap.add_argument("--launch-args", nargs="*", default=["headless:=true", "rviz:=false"])
     args = ap.parse_args()
 
@@ -65,8 +68,9 @@ def main():
         return subprocess.Popen(["bash", "-c", src + "exec " + cmd], env=env, stdout=out,
                                 stderr=subprocess.STDOUT, preexec_fn=os.setsid)
 
-    sim = spawn("ros2 launch " + str(REPO / "launch" / "indoor_autonomy_go2.launch.py") + " "
-                + " ".join(args.launch_args), open(log, "w"))
+    stack = args.stack_cmd or ("ros2 launch " + str(REPO / "launch" / "indoor_autonomy_go2.launch.py")
+                               + " " + " ".join(args.launch_args))
+    sim = spawn(stack, open(log, "w"))
     print(f"launch log: {log} (domain {args.domain})", flush=True)
     bridge = spawn("ros2 run ros_gz_image image_bridge /showcase_cam/image", subprocess.DEVNULL)
 

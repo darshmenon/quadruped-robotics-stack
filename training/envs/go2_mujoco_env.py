@@ -89,14 +89,14 @@ GAIT_PRESETS = {
 }
 GAIT_FREQ_RANGE = (1.5, 3.5)       # Hz
 GAIT_FOOTSWING_RANGE = (0.04, 0.18)  # metres, command only (clearance cue)
-GAIT_CONTACT_WEIGHT = 0.25
+GAIT_CONTACT_WEIGHT = 1.0   # was 0.25: the dense pull toward stepping (standing matches ~50% of a trot)
 GAIT_CONTACT_KAPPA = 0.08          # soft-step width for desired contact
 
 # Step-quality terms (air-time encourages real strides; slip penalizes
 # sliding while planted). Only score air-time when a nontrivial velocity
 # command is active so standing still is not rewarded for "long stance".
 AIR_TIME_TARGET_S = 0.25
-AIR_TIME_WEIGHT = 0.35
+AIR_TIME_WEIGHT = 1.0       # was 0.35
 FEET_SLIP_WEIGHT = 0.12
 CONTACT_FORCE_THRESH = 0.3  # after /50 clip, ~15 N raw touch
 
@@ -199,6 +199,10 @@ PUSH_INTERVAL_S = 3.0
 PUSH_VEL_XY = 0.55          # m/s impulse magnitude cap
 COLLISION_WEIGHT = 0.2      # non-foot geom vs floor / self
 SOFT_LIMIT_WEIGHT = 2.0     # soft DoF-limit proximity (unitree_rl_gym style)
+LIN_TRACK_SIGMA = 0.04      # velocity-tracking kernel width (was 0.1)
+HEIGHT_WEIGHT = 10.0        # was 1.0
+PENALTY_RAMP_MIN = 0.25     # collision/soft-limit weight fraction at curriculum_level=0 ...
+PENALTY_RAMP_LEVEL = 0.3    # ... reaching 1.0 at this level
 SOFT_LIMIT_MARGIN = 0.05    # rad inside hard range before penalty starts
 GAIT_SYMMETRY_WEIGHT = 0.15 # LocoTouch-style diagonal pair agreement (--gait)
 
@@ -318,7 +322,8 @@ class Go2MujocoEnv(gym.Env):
         self._pos_history = deque(maxlen=POS_HISTORY_LEN)
 
         if self.legs_only:
-            obs_dim = 45  # 3 ang_vel + 3 gravity + 3 cmd + 12 dof_pos + 12 dof_vel + 12 prev_action
+            # 3 ang_vel + 3 gravity + 3 cmd + 12 dof_pos + 12 dof_vel + 12 prev_action (+ gait cmd/clock)
+            obs_dim = 45 + (GAIT_OBS_DIM if self.gait_conditioned else 0)
         else:
             obs_dim = OBS_DIM + (GAIT_OBS_DIM if self.gait_conditioned else 0)
         obs_high = np.full(obs_dim, np.inf, dtype=np.float32)
@@ -434,6 +439,15 @@ class Go2MujocoEnv(gym.Env):
         self._clock_inputs = clocks
         self._desired_contact = desired
 
+    def _gait_feat(self) -> np.ndarray:
+        # Normalize freq into roughly [-1, 1]-ish range for the MLP.
+        freq_n = (self.gait_cmd[0] - GAIT_FREQ_RANGE[0]) / (
+            GAIT_FREQ_RANGE[1] - GAIT_FREQ_RANGE[0] + 1e-6)
+        swing_n = self.gait_cmd[4] / GAIT_FOOTSWING_RANGE[1]
+        return np.array(
+            [freq_n, self.gait_cmd[1], self.gait_cmd[2], self.gait_cmd[3], swing_n],
+            dtype=np.float32)
+
     def _get_obs(self) -> np.ndarray:
         d = self.data
         ang_vel   = d.sensor("ang_vel").data.astype(np.float32) * 0.25
@@ -442,9 +456,10 @@ class Go2MujocoEnv(gym.Env):
         if self.legs_only:
             dof_pos = (d.qpos[7:19].astype(np.float32) - DEFAULT_QPOS[:12])
             dof_vel = d.qvel[6:18].astype(np.float32) * 0.05
-            return np.concatenate([
-                ang_vel, gravity, cmd_scaled, dof_pos, dof_vel, self._prev_action,
-            ])
+            parts = [ang_vel, gravity, cmd_scaled, dof_pos, dof_vel, self._prev_action]
+            if self.gait_conditioned:
+                parts.extend([self._gait_feat(), self._clock_inputs])
+            return np.concatenate(parts)
         dof_pos   = (d.qpos[7:].astype(np.float32) - DEFAULT_QPOS)
         dof_vel   = d.qvel[6:].astype(np.float32) * 0.05
         contacts  = self._get_contacts()
@@ -459,14 +474,7 @@ class Go2MujocoEnv(gym.Env):
             contacts, ee_pos, self.reach_target,
         ]
         if self.gait_conditioned:
-            # Normalize freq into roughly [-1, 1]-ish range for the MLP.
-            freq_n = (self.gait_cmd[0] - GAIT_FREQ_RANGE[0]) / (
-                GAIT_FREQ_RANGE[1] - GAIT_FREQ_RANGE[0] + 1e-6)
-            swing_n = self.gait_cmd[4] / GAIT_FOOTSWING_RANGE[1]
-            gait_feat = np.array(
-                [freq_n, self.gait_cmd[1], self.gait_cmd[2], self.gait_cmd[3],
-                 swing_n],
-                dtype=np.float32)
+            gait_feat = self._gait_feat()
             parts.extend([gait_feat, self._clock_inputs])
         return np.concatenate(parts)
 
@@ -476,11 +484,14 @@ class Go2MujocoEnv(gym.Env):
         ang_vel  = d.sensor("ang_vel").data.astype(np.float32)
         gravity  = self._gravity_vec()
 
+        # Tight kernel: at the old 0.1 a frozen robot still earned ~1.3/step at
+        # cmd 0.2 (exp(-0.04/0.1)), so standing/sitting was nearly as good as walking.
         r_lin    = 2.0 * float(np.exp(
-            -((lin_vel[0] - self.cmd[0])**2 + (lin_vel[1] - self.cmd[1])**2) / 0.1))
+            -((lin_vel[0] - self.cmd[0])**2 + (lin_vel[1] - self.cmd[1])**2) / LIN_TRACK_SIGMA))
         r_ang    = 0.5 * float(np.exp(-((ang_vel[2] - self.cmd[2])**2) / 0.25))
         r_z      = -2.0  * float(lin_vel[2]**2)
-        r_height = -1.0  * (float(d.qpos[2]) - TARGET_HEIGHT)**2
+        # -1.0 gave ~-0.01 for a robot sitting 10 cm low, i.e. no pull toward standing.
+        r_height = -HEIGHT_WEIGHT * (float(d.qpos[2]) - TARGET_HEIGHT)**2
         r_orient = -0.5  * float(gravity[0]**2 + gravity[1]**2)
         r_torque = -2e-4 * float(np.sum(d.actuator_force**2))
         r_smooth = -5e-3 * float(np.sum((action - self._prev_action)**2))
@@ -536,8 +547,13 @@ class Go2MujocoEnv(gym.Env):
         r_alive = 0.0 if is_stalling else ALIVE_BONUS
 
         r_air, r_slip = self._air_time_and_slip(contacts)
-        r_col = -COLLISION_WEIGHT * float(self._nonfoot_collision_count())
-        r_lim = -SOFT_LIMIT_WEIGHT * self._soft_dof_limit_penalty()
+        # Body-contact and joint-limit penalties are what a sitting policy pays on
+        # every step (-1.7 and -0.8 measured); at full weight from step 0 they punish
+        # the exploration needed to stand up, so ramp them in with the curriculum.
+        pen_scale = PENALTY_RAMP_MIN + (1.0 - PENALTY_RAMP_MIN) * min(
+            1.0, self.curriculum_level / PENALTY_RAMP_LEVEL)
+        r_col = -COLLISION_WEIGHT * pen_scale * float(self._nonfoot_collision_count())
+        r_lim = -SOFT_LIMIT_WEIGHT * pen_scale * self._soft_dof_limit_penalty()
 
         components = dict(
             lin=r_lin, ang=r_ang, vz=r_z, height=r_height,

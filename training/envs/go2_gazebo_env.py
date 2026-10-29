@@ -81,6 +81,7 @@ class _Go2RosNode(Node):
         self.ang_vel = np.zeros(3, dtype=np.float32)
         self.orientation = np.array([1., 0., 0., 0.], dtype=np.float32)  # w,x,y,z
         self.lin_vel = np.zeros(3, dtype=np.float32)
+        self.base_xy = np.zeros(2, dtype=np.float64)
         self._lock = threading.Lock()
         self._joint_order = None
 
@@ -125,6 +126,8 @@ class _Go2RosNode(Node):
         with self._lock:
             lv = msg.twist.twist.linear
             self.lin_vel[:] = [lv.x, lv.y, lv.z]
+            ps = msg.pose.pose.position
+            self.base_xy[:] = [ps.x, ps.y]
 
     def send_action(self, target_pos, joint_order=CHAMP_JOINTS):
         for i, name in enumerate(joint_order):
@@ -146,6 +149,10 @@ class _Go2RosNode(Node):
                 self.joint_pos.copy(),
                 self.joint_vel.copy(),
             )
+
+    def get_base_xy(self):
+        with self._lock:
+            return self.base_xy.copy()
 
     def get_lin_vel(self):
         with self._lock:

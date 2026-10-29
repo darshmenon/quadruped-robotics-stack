@@ -8,7 +8,7 @@ import time
 
 import numpy as np
 
-from envs.go2_gazebo_env import CTRL_DT, Go2GazeboEnv
+from envs.go2_gazebo_env import Go2GazeboEnv
 
 
 def _load_model(path, env):
@@ -57,19 +57,16 @@ def evaluate(args):
         for ep in range(args.episodes):
             obs = env.reset()
             start = time.monotonic()
-            start_pos = None
-            end_pos = None
+            start_pos = raw._node.get_base_xy()
             rewards = []
             speeds = []
             terminated = False
             truncated = False
 
             while not (terminated or truncated):
-                odom_vel = raw._node.get_lin_vel()
-                if start_pos is None:
-                    start_pos = np.zeros(2, dtype=np.float32)
                 act = _action(model, obs, raw.action_space.shape)
                 obs, reward, done, _ = env.step(act)
+                odom_vel = raw._node.get_lin_vel()  # after the step, so it matches this tick's reward
                 terminated = bool(done[0])
                 rewards.append(float(reward[0]))
                 speeds.append(float(np.linalg.norm(odom_vel[:2])))
@@ -79,10 +76,8 @@ def evaluate(args):
             elapsed = time.monotonic() - start
             mean_speed = float(np.mean(speeds)) if speeds else 0.0
             commanded_speed = float(np.linalg.norm(args.cmd[:2]))
-            # Gazebo env currently exposes velocity, not world position. Distance
-            # is velocity-integrated, which is enough for repeatable policy eval.
-            distance = float(sum(speeds) * CTRL_DT)
-            end_pos = np.array([distance, 0.0], dtype=np.float32)
+            # Net displacement from /odom, so rocking in place doesn't count as distance.
+            distance = float(np.linalg.norm(raw._node.get_base_xy() - start_pos))
             cmd_error = abs(mean_speed - commanded_speed)
             rows.append({
                 "episode": ep + 1,
@@ -91,7 +86,7 @@ def evaluate(args):
                 "terminated": int(terminated),
                 "truncated": int(truncated),
                 "elapsed_s": round(elapsed, 3),
-                "distance_m": round(float(np.linalg.norm(end_pos - start_pos)), 3),
+                "distance_m": round(distance, 3),
                 "mean_speed_mps": round(mean_speed, 3),
                 "command_speed_mps": round(commanded_speed, 3),
                 "speed_error_mps": round(cmd_error, 3),
@@ -135,6 +130,19 @@ def main():
 
     for row in rows:
         print(row)
+    if rows:
+        print(_benchmark_row(rows, args))
+
+
+def _benchmark_row(rows, args):
+    """Aggregate episodes into a row for the docs/BENCHMARKS.md Gazebo RL table."""
+    n = len(rows)
+    mean = lambda k: sum(r[k] for r in rows) / n
+    fall = sum(r["terminated"] for r in rows) / n
+    model = os.path.basename(args.model) if args.model else "zero-action"
+    cmd = " ".join(f"{c:g}" for c in args.cmd)
+    return (f"| {time.strftime('%Y-%m-%d')} | {model} | `{cmd}` | {n} | {mean('steps'):.0f} | "
+            f"{fall:.0%} | {mean('mean_speed_mps'):.2f} | {mean('speed_error_mps'):.2f} | |")
 
 
 if __name__ == "__main__":

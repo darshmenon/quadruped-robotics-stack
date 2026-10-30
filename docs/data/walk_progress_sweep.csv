@@ -1,0 +1,9 @@
+model,scene,cmd,fall_pct,steps,dist_m,vx,layout
+training/logs/mujoco_curriculum/flat_trotprior3_600k/checkpoints/go2_flat_100000_steps.zip,flat,0.3,0.0,1000.0,0.17869349719143568,0.008934674859571784,"(True, 5, True, True)"
+training/logs/mujoco_curriculum/flat_trotprior3_600k/checkpoints/go2_flat_300000_steps.zip,flat,0.3,0.0,1000.0,0.3438978501537916,0.01719489250768958,"(True, 5, True, True)"
+training/logs/mujoco_curriculum/flat_trotprior3_600k/checkpoints/go2_flat_600000_steps.zip,flat,0.3,0.0,1000.0,1.2301774585784844,0.06150887292892422,"(True, 5, True, True)"
+training/logs/mujoco_curriculum/flat_trotprior4_1p75M/checkpoints/go2_flat_1006208_steps.zip,flat,0.3,0.0,1000.0,2.8084575846680577,0.14042287923340288,"(True, 5, True, True)"
+training/logs/mujoco_curriculum/flat_trotprior4_1p75M/checkpoints/go2_flat_1256208_steps.zip,flat,0.3,0.0,1000.0,2.851049304827222,0.1425524652413611,"(True, 5, True, True)"
+training/logs/mujoco_curriculum/flat_trotprior4_1p75M/checkpoints/go2_flat_1456208_steps.zip,flat,0.3,0.0,1000.0,3.458135491016005,0.17290677455080025,"(True, 5, True, True)"
+training/logs/mujoco_curriculum/flat_trotprior4_1p75M/checkpoints/go2_flat_1706208_steps.zip,flat,0.3,0.0,1000.0,5.18332513161981,0.2591662565809905,"(True, 5, True, True)"
+training/logs/mujoco_curriculum/flat_trotprior4_1p75M/checkpoints/go2_flat_1756208_steps.zip,flat,0.3,0.0,1000.0,6.050537228807691,0.30252686144038454,"(True, 5, True, True)"

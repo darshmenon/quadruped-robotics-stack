@@ -46,9 +46,9 @@ def _find_vecnorm(model_path):
     return None
 
 
-def _build(scene, cmd, layout, vecnorm):
+def _build(scene, cmd, layout, vecnorm, wz=0.0):
     asym, hist, legs, *rest = layout
-    raw = pp._make_env(scene, (cmd, 0.0, 0.0), use_vision=False, obs_history=hist,
+    raw = pp._make_env(scene, (cmd, 0.0, wz), use_vision=False, obs_history=hist,
                        asymmetric=asym, legs_only=legs, gait_conditioned=bool(rest and rest[0]))
     env = DummyVecEnv([lambda: Monitor(raw)])
     if vecnorm:
@@ -60,12 +60,19 @@ def _build(scene, cmd, layout, vecnorm):
     return env, core
 
 
+def _yaw(core):
+    w, x, y, z = core.data.qpos[3:7]
+    return float(np.arctan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)))
+
+
 def _episodes(env, model, core, n, max_steps):
     out = []
     for _ in range(n):
         obs = env.reset()
         x0, y0 = pp._base_xy(core)
         x1, y1, fell, steps = x0, y0, False, 0
+        yaw0 = prev = _yaw(core)
+        turned = 0.0  # unwrapped heading change
         for steps in range(1, max_steps + 1):
             action, _ = model.predict(obs, deterministic=True)
             obs, _, done, infos = env.step(action)
@@ -73,8 +80,11 @@ def _episodes(env, model, core, n, max_steps):
                 fell = not infos[0].get("TimeLimit.truncated", False)
                 break
             x1, y1 = pp._base_xy(core)
+            cur = _yaw(core)
+            turned += (cur - prev + np.pi) % (2 * np.pi) - np.pi
+            prev = cur
         dist = float(np.hypot(x1 - x0, y1 - y0))
-        out.append((steps, dist, fell))
+        out.append((steps, dist, fell, turned))
     return out
 
 
@@ -83,6 +93,7 @@ def main():
     ap.add_argument("--models", nargs="+", required=True)
     ap.add_argument("--scenes", nargs="+", default=["flat"], choices=["flat", "stairs", "rough"])
     ap.add_argument("--cmds", type=float, nargs="+", default=[0.2, 0.35])
+    ap.add_argument("--wz", type=float, nargs="+", default=[0.0], help="yaw-rate commands (rad/s) crossed with --cmds")
     ap.add_argument("--episodes", type=int, default=4)
     ap.add_argument("--max-steps", type=int, default=1000)
     ap.add_argument("--csv", default=None)
@@ -90,15 +101,15 @@ def main():
 
     dt = pp.SIM_DT * pp.CTRL_DECIMATION
     rows = []
-    print(f"{'model':<58}{'scene':<7}{'vx':>5}{'fall%':>7}{'steps':>7}{'dist_m':>8}{'vx_act':>8}")
+    print(f"{'model':<58}{'scene':<7}{'vx':>5}{'wz':>6}{'fall%':>7}{'steps':>7}{'dist_m':>8}{'vx_act':>8}{'wz_act':>8}")
     for mp in args.models:
         vn = _find_vecnorm(mp)
         for scene in args.scenes:
-            for cmd in args.cmds:
+            for cmd, wz in [(c, w) for c in args.cmds for w in args.wz]:
                 res = None
                 for layout in LAYOUTS:
                     try:
-                        env, core = _build(scene, cmd, layout, vn)
+                        env, core = _build(scene, cmd, layout, vn, wz)
                         model = PPO.load(mp, env=env)
                         res = _episodes(env, model, core, args.episodes, args.max_steps)
                         break
@@ -106,15 +117,16 @@ def main():
                         last = e
                 label = os.path.relpath(mp)[-56:]
                 if res is None:
-                    print(f"{label:<58}{scene:<7}{cmd:>5.2f}  no matching obs layout ({last})")
+                    print(f"{label:<58}{scene:<7}{cmd:>5.2f}{wz:>6.2f}  no matching obs layout ({last})")
                     continue
                 steps = np.mean([r[0] for r in res])
                 dist = np.mean([r[1] for r in res])
                 fall = 100.0 * np.mean([r[2] for r in res])
                 vx = dist / max(steps * dt, 1e-6)
-                print(f"{label:<58}{scene:<7}{cmd:>5.2f}{fall:>7.0f}{steps:>7.0f}{dist:>8.2f}{vx:>8.2f}", flush=True)
-                rows.append(dict(model=mp, scene=scene, cmd=cmd, fall_pct=fall, steps=steps,
-                                 dist_m=dist, vx=vx, layout=layout))
+                wz_act = np.mean([r[3] for r in res]) / max(steps * dt, 1e-6)
+                print(f"{label:<58}{scene:<7}{cmd:>5.2f}{wz:>6.2f}{fall:>7.0f}{steps:>7.0f}{dist:>8.2f}{vx:>8.2f}{wz_act:>8.2f}", flush=True)
+                rows.append(dict(model=mp, scene=scene, cmd=cmd, wz=wz, fall_pct=fall, steps=steps,
+                                 dist_m=dist, vx=vx, wz_act=wz_act, layout=layout))
     if args.csv and rows:
         with open(args.csv, "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=list(rows[0]))

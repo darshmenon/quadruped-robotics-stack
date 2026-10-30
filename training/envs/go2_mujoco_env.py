@@ -199,6 +199,16 @@ PUSH_INTERVAL_S = 3.0
 PUSH_VEL_XY = 0.55          # m/s impulse magnitude cap
 COLLISION_WEIGHT = 0.2      # non-foot geom vs floor / self
 SOFT_LIMIT_WEIGHT = 2.0     # soft DoF-limit proximity (unitree_rl_gym style)
+# Clocked trot prior: when GO2_TROT_PRIOR=1 (and gait_conditioned) the joint targets are
+# default + prior(gait clock) + action * ACT_SCALE, so standing still means fighting the prior.
+# NOTE the checkpoint's obs layout doesn't change, so eval/play must set the same env var.
+TROT_CALF_LIFT = 0.45       # rad of extra calf flexion at mid-swing (lifts the foot)
+TROT_THIGH_SWING = -0.3     # rad of thigh swing through the stride (negative = forward; probed: +0.15 drifts backward)
+GAIT_SWING_FORCE_WEIGHT = 0.5  # penalty on foot contact force while that foot should be in swing
+CMD_FLOOR_VX = 0.25         # early-curriculum minimum forward command, fades out by level 0.5
+CMD_MAX_VX_MIN = 0.45       # early-curriculum max forward command (was 0.15 at level 0)
+PROGRESS_WEIGHT = 3.0       # reward per m/s of forward speed along the command
+STALL_PENALTY = 1.0         # was a hard-coded 0.6
 LIN_TRACK_SIGMA = 0.04      # velocity-tracking kernel width (was 0.1)
 HEIGHT_WEIGHT = 10.0        # was 1.0
 PENALTY_RAMP_MIN = 0.25     # collision/soft-limit weight fraction at curriculum_level=0 ...
@@ -213,7 +223,7 @@ class Go2MujocoEnv(gym.Env):
     def __init__(self, cmd=(0.5, 0.0, 0.0), render_mode=None,
                  randomize_domain=True, use_curriculum=True,
                  initial_curriculum_level=0.0, reach_target=None,
-                 gait_conditioned=False, gait_name="trotting",
+                 gait_conditioned=False, gait_name="trotting", trot_prior=None,
                  push_robots=True, legs_only=False):
         super().__init__()
         self.model = mujoco.MjModel.from_xml_path(SCENE_XML)
@@ -225,6 +235,10 @@ class Go2MujocoEnv(gym.Env):
         self.randomize_domain = randomize_domain
         self.use_curriculum = use_curriculum
         self.gait_conditioned = bool(gait_conditioned)
+        if trot_prior is None:
+            trot_prior = os.environ.get("GO2_TROT_PRIOR", "0") == "1"
+        self.trot_prior = bool(trot_prior) and self.gait_conditioned
+        self._swing_s = np.zeros(4, dtype=np.float32)
         self.push_robots = bool(push_robots)
         # legs_only holds the arm+gripper fixed at ARM_STOW and drops it from
         # the action/observation space entirely, giving a 12-action/45-obs
@@ -426,6 +440,7 @@ class Go2MujocoEnv(gym.Env):
 
         clocks = np.empty(4, dtype=np.float32)
         desired = np.empty(4, dtype=np.float32)
+        swing_s = np.zeros(4, dtype=np.float32)
         kappa = GAIT_CONTACT_KAPPA
         for i, p in enumerate(foot_phases):
             # Warp so stance occupies [0, 0.5) and swing [0.5, 1).
@@ -434,10 +449,21 @@ class Go2MujocoEnv(gym.Env):
             else:
                 warped = 0.5 + (p - duration) * (0.5 / (1.0 - duration))
             clocks[i] = np.sin(2.0 * np.pi * warped)
+            if warped >= 0.5:  # half-sine bump through the swing phase
+                swing_s[i] = np.sin(2.0 * np.pi * (warped - 0.5))
             # Soft stance indicator: high in first half of warped cycle.
             desired[i] = 1.0 / (1.0 + np.exp((warped - 0.5) / kappa))
         self._clock_inputs = clocks
         self._desired_contact = desired
+        self._swing_s = swing_s
+
+    def _trot_prior_offset(self) -> np.ndarray:
+        """(12,) joint-target offset in actuator order [hips, thighs, calves], feet FL FR RL RR."""
+        off = np.zeros(12, dtype=np.float32)
+        if self.trot_prior:
+            off[4:8] = TROT_THIGH_SWING * (self._swing_s - 0.5 * float(np.max(self._swing_s)))
+            off[8:12] = -TROT_CALF_LIFT * self._swing_s
+        return off
 
     def _gait_feat(self) -> np.ndarray:
         # Normalize freq into roughly [-1, 1]-ish range for the MLP.
@@ -530,7 +556,14 @@ class Go2MujocoEnv(gym.Env):
         actual_speed = float(np.hypot(base_xy[0] - old_x, base_xy[1] - old_y)) / max(window_s, CTRL_DT)
         self._pos_history.append(base_xy)
         is_stalling = cmd_speed > 0.15 and actual_speed < 0.3 * cmd_speed
-        r_stall = -0.6 if is_stalling else 0.0
+        r_stall = -STALL_PENALTY if is_stalling else 0.0
+        # Direct forward-progress term: velocity along the commanded direction, linear and
+        # unsaturated, so a clumsy lurch beats standing (the tracking kernel alone left a
+        # stable stand at a constant -0.6 stall cost that PPO never left).
+        r_prog = 0.0
+        if cmd_speed > 0.1:
+            along = float(lin_vel[0] * self.cmd[0] + lin_vel[1] * self.cmd[1]) / cmd_speed
+            r_prog = PROGRESS_WEIGHT * float(np.clip(along, -0.2, 1.5 * cmd_speed))
 
         # ALIVE_BONUS was meant to stop early termination from ever being a
         # shortcut to dodge penalties, but it's unconditional -- a policy
@@ -558,7 +591,7 @@ class Go2MujocoEnv(gym.Env):
         components = dict(
             lin=r_lin, ang=r_ang, vz=r_z, height=r_height,
             orient=r_orient, torque=r_torque, smooth=r_smooth, contact=r_contact,
-            stall=r_stall, alive=r_alive,
+            stall=r_stall, alive=r_alive, progress=r_prog,
             air_time=r_air, slip=r_slip,
             collision=r_col, soft_limit=r_lim,
         )
@@ -594,7 +627,11 @@ class Go2MujocoEnv(gym.Env):
             # Match measured contacts to the commanded gait's stance/swing.
             # contacts are already in [0,1]; desired_contact is soft [0,1].
             match = 1.0 - np.abs(contacts - self._desired_contact)
-            components["gait_contact"] = GAIT_CONTACT_WEIGHT * float(np.mean(match))
+            # Centered: standing (all feet down) matches the clock ~50% of the time and
+            # used to collect +0.5*weight/step for free; now it scores ~0.
+            components["gait_contact"] = GAIT_CONTACT_WEIGHT * float(np.mean(2.0 * match - 1.0))
+            components["gait_swing_force"] = -GAIT_SWING_FORCE_WEIGHT * float(
+                np.mean(np.minimum(contacts, 1.0) * (1.0 - self._desired_contact)))
             # Diagonal pair symmetry (FL↔RR, FR↔RL) — LocoTouch idea, no tactile.
             diag = 0.5 * (
                 1.0 - abs(float(contacts[0] - contacts[3]))
@@ -604,8 +641,10 @@ class Go2MujocoEnv(gym.Env):
         return float(sum(components.values())), components
 
     def _sample_cmd(self) -> np.ndarray:
-        max_vx = 0.15 + 1.05 * self.curriculum_level
-        vx = float(self.np_random.uniform(-0.1, max_vx))
+        max_vx = max(0.15 + 1.05 * self.curriculum_level, CMD_MAX_VX_MIN)
+        fade = min(1.0, self.curriculum_level / 0.5)
+        min_vx = -0.1 + (CMD_FLOOR_VX + 0.1) * (1.0 - fade)  # early: never ask for "stand still"
+        vx = float(self.np_random.uniform(min_vx, max_vx))
         vy = float(self.np_random.uniform(-0.2, 0.2)) * self.curriculum_level
         wz = float(self.np_random.uniform(-0.5, 0.5)) * self.curriculum_level
         return np.array([vx, vy, wz], dtype=np.float32)
@@ -881,9 +920,10 @@ class Go2MujocoEnv(gym.Env):
         action = np.clip(action, -1.0, 1.0).astype(np.float32)
         if self.legs_only:
             ctrl = self._act_default.copy()
-            ctrl[:12] = self._act_default[:12] + action * ACT_SCALE
+            ctrl[:12] = self._act_default[:12] + action * ACT_SCALE + self._trot_prior_offset()
         else:
             ctrl = self._act_default + action * ACT_SCALE
+            ctrl[:12] += self._trot_prior_offset()
             ctrl[ARM_ACT_SLICE] = (
                 self._arm_ik_baseline + action[ARM_ACT_SLICE] * ARM_RESIDUAL_SCALE)
         self.data.ctrl[:] = ctrl

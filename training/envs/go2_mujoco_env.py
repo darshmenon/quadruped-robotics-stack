@@ -209,6 +209,17 @@ CMD_FLOOR_VX = 0.25         # early-curriculum minimum forward command, fades ou
 CMD_MAX_VX_MIN = 0.45       # early-curriculum max forward command (was 0.15 at level 0)
 PROGRESS_WEIGHT = 3.0       # reward per m/s of forward speed along the command
 STALL_PENALTY = 1.0         # was a hard-coded 0.6
+# GO2_WIDE_CMD=1: sample stop / turn-in-place / mixed commands regardless of curriculum level, and
+# scale the trot prior with command size (its 0.45 rad calf lift exceeds the +-0.25 rad action
+# range, so the policy could never cancel it to stand still or turn in place).
+RAND_GAINS_KP_MAX = 15.0    # GO2_RAND_GAINS=1: kp scale log-uniform in [1, 15] (kp 20 -> 300 = Gazebo's); switches to implicitfast (Euler blows up past ~4x)
+RAND_GAINS_KV_RATIO = (1.0, 4.0)  # kv scale = kp scale * U(1, 4): Gazebo's kv/kp (0.1) is 4x MuJoCo's (0.025)
+WIDE_CMD_STOP_P = 0.15      # probability of an all-zero command
+WIDE_CMD_TURN_P = 0.15      # probability of a pure-yaw command
+WIDE_CMD_MAX_VX = 0.5
+WIDE_CMD_MAX_VY = 0.15
+WIDE_CMD_MAX_WZ = 0.6
+PRIOR_FULL_SPEED = 0.3      # command magnitude (m/s, yaw weighted 0.3) at which the prior is full strength
 LIN_TRACK_SIGMA = 0.04      # velocity-tracking kernel width (was 0.1)
 HEIGHT_WEIGHT = 10.0        # was 1.0
 PENALTY_RAMP_MIN = 0.25     # collision/soft-limit weight fraction at curriculum_level=0 ...
@@ -239,6 +250,10 @@ class Go2MujocoEnv(gym.Env):
             trot_prior = os.environ.get("GO2_TROT_PRIOR", "0") == "1"
         self.trot_prior = bool(trot_prior) and self.gait_conditioned
         self._swing_s = np.zeros(4, dtype=np.float32)
+        self.wide_cmd = os.environ.get("GO2_WIDE_CMD", "0") == "1"
+        self.rand_gains = os.environ.get("GO2_RAND_GAINS", "0") == "1"
+        if self.rand_gains:
+            self.model.opt.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
         self.push_robots = bool(push_robots)
         # legs_only holds the arm+gripper fixed at ARM_STOW and drops it from
         # the action/observation space entirely, giving a 12-action/45-obs
@@ -294,6 +309,7 @@ class Go2MujocoEnv(gym.Env):
         self._base_floor_friction = self.model.geom_friction[self._floor_geom_id].copy()
         self._base_gainprm = self.model.actuator_gainprm[:, 0].copy()
         self._base_biasprm1 = self.model.actuator_biasprm[:, 1].copy()
+        self._base_biasprm2 = self.model.actuator_biasprm[:, 2].copy()
 
         # Foot bodies for air-time / slip rewards (FL, FR, RL, RR).
         self._foot_body_ids = np.array([
@@ -461,8 +477,20 @@ class Go2MujocoEnv(gym.Env):
         """(12,) joint-target offset in actuator order [hips, thighs, calves], feet FL FR RL RR."""
         off = np.zeros(12, dtype=np.float32)
         if self.trot_prior:
-            off[4:8] = TROT_THIGH_SWING * (self._swing_s - 0.5 * float(np.max(self._swing_s)))
-            off[8:12] = -TROT_CALF_LIFT * self._swing_s
+            if self.wide_cmd:
+                # Per-side stride gain: forward speed sets both sides, yaw adds to the right side and
+                # subtracts from the left (CCW turn = right legs stride further; at vx=0 the left side
+                # reverses, which turns the body in place). Calf lift follows |gain| so a stopped
+                # command lifts nothing.
+                g_lin, g_yaw = float(self.cmd[0]) / PRIOR_FULL_SPEED, float(self.cmd[2]) / WIDE_CMD_MAX_WZ
+                g = np.array([g_lin - g_yaw, g_lin + g_yaw, g_lin - g_yaw, g_lin + g_yaw])  # FL FR RL RR
+                g = np.clip(g, -1.0, 1.0).astype(np.float32)
+                swing_ref = self._swing_s - 0.5 * float(np.max(self._swing_s))
+                off[4:8] = TROT_THIGH_SWING * swing_ref * g
+                off[8:12] = -TROT_CALF_LIFT * self._swing_s * np.abs(g)
+            else:
+                off[4:8] = TROT_THIGH_SWING * (self._swing_s - 0.5 * float(np.max(self._swing_s)))
+                off[8:12] = -TROT_CALF_LIFT * self._swing_s
         return off
 
     def _gait_feat(self) -> np.ndarray:
@@ -514,7 +542,8 @@ class Go2MujocoEnv(gym.Env):
         # cmd 0.2 (exp(-0.04/0.1)), so standing/sitting was nearly as good as walking.
         r_lin    = 2.0 * float(np.exp(
             -((lin_vel[0] - self.cmd[0])**2 + (lin_vel[1] - self.cmd[1])**2) / LIN_TRACK_SIGMA))
-        r_ang    = 0.5 * float(np.exp(-((ang_vel[2] - self.cmd[2])**2) / 0.25))
+        r_ang    = (1.0 * float(np.exp(-((ang_vel[2] - self.cmd[2])**2) / 0.05)) if self.wide_cmd
+                    else 0.5 * float(np.exp(-((ang_vel[2] - self.cmd[2])**2) / 0.25)))
         r_z      = -2.0  * float(lin_vel[2]**2)
         # -1.0 gave ~-0.01 for a robot sitting 10 cm low, i.e. no pull toward standing.
         r_height = -HEIGHT_WEIGHT * (float(d.qpos[2]) - TARGET_HEIGHT)**2
@@ -641,6 +670,17 @@ class Go2MujocoEnv(gym.Env):
         return float(sum(components.values())), components
 
     def _sample_cmd(self) -> np.ndarray:
+        if self.wide_cmd:
+            rng = self.np_random
+            u = float(rng.random())
+            if u < WIDE_CMD_STOP_P:
+                return np.zeros(3, dtype=np.float32)
+            if u < WIDE_CMD_STOP_P + WIDE_CMD_TURN_P:  # turn in place
+                wz = float(rng.uniform(0.2, WIDE_CMD_MAX_WZ)) * float(rng.choice([-1.0, 1.0]))
+                return np.array([0.0, 0.0, wz], dtype=np.float32)
+            return np.array([rng.uniform(0.15, WIDE_CMD_MAX_VX),
+                             rng.uniform(-WIDE_CMD_MAX_VY, WIDE_CMD_MAX_VY),
+                             rng.uniform(-0.4, 0.4)], dtype=np.float32)
         max_vx = max(0.15 + 1.05 * self.curriculum_level, CMD_MAX_VX_MIN)
         fade = min(1.0, self.curriculum_level / 0.5)
         min_vx = -0.1 + (CMD_FLOOR_VX + 0.1) * (1.0 - fade)  # early: never ask for "stand still"
@@ -766,6 +806,12 @@ class Go2MujocoEnv(gym.Env):
         kp_scale = float(rng.uniform(0.85, 1.15))
         self.model.actuator_gainprm[:, 0] = self._base_gainprm * kp_scale
         self.model.actuator_biasprm[:, 1] = self._base_biasprm1 * kp_scale
+        if self.rand_gains:
+            kp_scale = float(np.exp(rng.uniform(0.0, np.log(RAND_GAINS_KP_MAX))))
+            kv_scale = kp_scale * float(rng.uniform(*RAND_GAINS_KV_RATIO))
+            self.model.actuator_gainprm[:, 0] = self._base_gainprm * kp_scale
+            self.model.actuator_biasprm[:, 1] = self._base_biasprm1 * kp_scale
+            self.model.actuator_biasprm[:, 2] = self._base_biasprm2 * kv_scale
 
     def _maybe_push(self) -> None:
         """Impulse on base xy velocity mid-episode (simulates bumps / trips)."""

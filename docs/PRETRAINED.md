@@ -37,6 +37,17 @@ python3 training/play_policy.py --model training/logs/mujoco/go2_mujoco_final.zi
 
 Controls (GUI): `R` reset, `ESC` quit.
 
+### go2_walk_trotprior
+
+Current flat-ground walker (PPO + clocked trot prior), committed at `training/pretrained/go2_walk_trotprior/`.
+Walks forward at the commanded 0.30 m/s with 0% falls; trained on forward commands only. Needs `GO2_TROT_PRIOR=1`.
+
+```bash
+GO2_TROT_PRIOR=1 python3 training/eval_checkpoints.py \
+  --models training/pretrained/go2_walk_trotprior/go2_flat_walk.zip --scenes flat --cmds 0.2 0.3 0.45
+python3 training/teleop_mujoco.py --model training/pretrained/go2_walk_trotprior/go2_flat_walk.zip --trot-prior
+```
+
 ### go2_mujoco_stairs
 
 Train the stairs model, then play it:

@@ -31,8 +31,14 @@ ARM_REACH_NODE = REPO / "intelligence" / "manipulation" / "arm_reach_node.py"
 
 def generate_launch_description():
     headless_arg = DeclareLaunchArgument("headless", default_value="false")
+    urdf_arg = DeclareLaunchArgument(
+        "urdf", default_value=str(URDF),
+        description="Robot URDF; pass the output of scripts/make_go2_noarm_urdf.py for an arm-free Go2.")
     world_arg = DeclareLaunchArgument("world", default_value=str(DEFAULT_WORLD))
     stand_duration_arg = DeclareLaunchArgument("stand_duration", default_value="-1.0")
+    p_gain_arg = DeclareLaunchArgument("p_gain", default_value="300", description="Leg JointPositionController p_gain")
+    d_gain_arg = DeclareLaunchArgument("d_gain", default_value="30", description="Leg JointPositionController d_gain")
+    mu_arg = DeclareLaunchArgument("mu", default_value="2.5", description="Foot/ground friction coefficient")
     enable_arm_reach_arg = DeclareLaunchArgument("enable_arm_reach", default_value="false")
     enable_lidar3d_arg = DeclareLaunchArgument(
         "enable_lidar3d", default_value="true",
@@ -64,6 +70,10 @@ def generate_launch_description():
         headless_arg,
         world_arg,
         stand_duration_arg,
+        urdf_arg,
+        p_gain_arg,
+        mu_arg,
+        d_gain_arg,
         enable_arm_reach_arg,
         enable_lidar3d_arg,
         enable_octomap_arg,
@@ -75,6 +85,7 @@ def generate_launch_description():
 def _launch_setup(context, *args, **kwargs):
     headless = LaunchConfiguration("headless").perform(context).lower() == "true"
     world = LaunchConfiguration("world").perform(context)
+    urdf = LaunchConfiguration("urdf").perform(context)
     stand_duration = LaunchConfiguration("stand_duration").perform(context)
     enable_arm_reach = LaunchConfiguration("enable_arm_reach").perform(context).lower() == "true"
     enable_lidar3d = LaunchConfiguration("enable_lidar3d").perform(context).lower() == "true"
@@ -84,7 +95,13 @@ def _launch_setup(context, *args, **kwargs):
         "python3",
         str(STAND_SDF_SCRIPT),
         "--urdf",
-        str(URDF),
+        urdf,
+        "--mu",
+        LaunchConfiguration("mu").perform(context),
+        "--p-gain",
+        LaunchConfiguration("p_gain").perform(context),
+        "--d-gain",
+        LaunchConfiguration("d_gain").perform(context),
         "--out",
         str(STAND_SDF),
     ], check=True)
@@ -101,7 +118,7 @@ def _launch_setup(context, *args, **kwargs):
     )
 
     # Robot state publisher (TF from URDF)
-    with open(URDF, "r") as f:
+    with open(urdf, "r") as f:
         robot_description = f.read()
     # go2_gz.urdf bakes in a __REPO_ROOT__ placeholder for the ros2_control
     # params file path (see scripts/make_go2_stand.py), resolved here.

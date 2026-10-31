@@ -54,6 +54,9 @@ CONTROLLER_PLUGIN = "gz::sim::systems::JointPositionController"
 parser = argparse.ArgumentParser()
 parser.add_argument("--urdf", default=DEFAULT_URDF)
 parser.add_argument("--out", default=DEFAULT_OUT_SDF)
+parser.add_argument("--mu", default="2.5", help="foot/ground friction (MuJoCo floor uses 1.0)")
+parser.add_argument("--p-gain", default="300", help="JointPositionController p_gain (MuJoCo-trained policies use 20)")
+parser.add_argument("--d-gain", default="30", help="JointPositionController d_gain (MuJoCo-trained policies use 0.5)")
 args = parser.parse_args()
 
 # Convert URDF -> SDF
@@ -76,6 +79,10 @@ ET.register_namespace("", "")
 tree = ET.ElementTree(ET.fromstring(sdf_text))
 root = tree.getroot()
 model = root.find("model")
+
+# A model without the arm (scripts/make_go2_noarm_urdf.py) has no arm joints: only pose/control what exists.
+_present = {j.get("name") for j in model.findall("joint")}
+STANDING_POSE = {k: v for k, v in STANDING_POSE.items() if k in _present}
 
 # go2_gz.urdf already carries JointPositionController plugins. Remove them
 # before adding this script's tuned controllers, otherwise duplicate
@@ -118,8 +125,8 @@ def tune_collision_surface(collision):
     surface = ensure_child(collision, "surface")
     friction = ensure_child(surface, "friction")
     ode = ensure_child(friction, "ode")
-    set_text(ode, "mu", "2.5")
-    set_text(ode, "mu2", "2.5")
+    set_text(ode, "mu", args.mu)
+    set_text(ode, "mu2", args.mu)
     set_text(ode, "fdir1", "1 0 0")
 
     contact = ensure_child(surface, "contact")
@@ -181,7 +188,7 @@ for jname, angle in STANDING_POSE.items():
     # commanded 0.32 and roughly halves the steady-state creep (measured
     # ~0.036 m/s); it does not eliminate it -- that's a genuine stance-pose/
     # CoM equilibrium issue (see STANDING_POSE above), not a gain problem.
-    ET.SubElement(plugin, "p_gain").text = "300"
+    ET.SubElement(plugin, "p_gain").text = args.p_gain
     ET.SubElement(plugin, "i_gain").text = "0"
     # d_gain raised further to 30 (vs. the 15 that matched p_gain's stand-pose
     # scaling above): these same per-joint controllers also track CHAMP's
@@ -191,7 +198,7 @@ for jname, angle in STANDING_POSE.items():
     # alone (p_gain unchanged, so the stand-pose height/creep fix is kept)
     # raises the damping ratio and absorbs that contact energy instead of
     # bouncing it back.
-    ET.SubElement(plugin, "d_gain").text = "30"
+    ET.SubElement(plugin, "d_gain").text = args.d_gain
     ET.SubElement(plugin, "i_max").text = "0"
     ET.SubElement(plugin, "i_min").text = "0"
     ET.SubElement(plugin, "cmd_max").text = "120"

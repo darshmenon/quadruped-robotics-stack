@@ -26,6 +26,7 @@ import numpy as np
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Imu, JointState
 from std_msgs.msg import Float64
@@ -46,9 +47,13 @@ ACT_DEFAULT = np.array([DEFAULT_QPOS[JOINTS.index(n)] for n in ACT_ORDER], dtype
 
 
 class RLCmdVel(Node):
-    def __init__(self, model_path, trot_prior, stand_thresh):
-        super().__init__("rl_cmd_vel_go2_gz")
-        self.trot_prior, self.stand_thresh = trot_prior, stand_thresh
+    def __init__(self, model_path, trot_prior, stand_thresh, debug=False, sim_time=True, gyro_scale=1.0):
+        # Tick on /clock: Gazebo runs below real time in heavy worlds (~0.7x measured), and a wall-clock
+        # 50 Hz loop then feeds the policy stale sensor frames and runs its gait clock too fast.
+        super().__init__("rl_cmd_vel_go2_gz",
+                         parameter_overrides=[Parameter("use_sim_time", Parameter.Type.BOOL, sim_time)])
+        self.debug, self.n_js, self.n_imu, self.n_tick, self.last_a = debug, 0, 0, 0, np.zeros(12, np.float32)
+        self.trot_prior, self.stand_thresh, self.gyro_scale = trot_prior, stand_thresh, gyro_scale
         d = os.path.dirname(os.path.abspath(model_path))
         vn = next(p for p in (os.path.join(d, "vecnorm_final.pkl"),
                               os.path.join(d, "..", "vecnorm_final.pkl")) if os.path.exists(p))
@@ -82,12 +87,14 @@ class RLCmdVel(Node):
             self.q = np.array([m.position[idx[n]] for n in JOINTS], np.float32)
             self.qd = np.array([m.velocity[idx[n]] for n in JOINTS], np.float32)
             self.have_js = True
+            self.n_js += 1
 
     def _imu(self, m):
         o, a = m.orientation, m.angular_velocity
         self.quat = np.array([o.w, o.x, o.y, o.z], np.float32)
-        self.ang_vel = np.array([a.x, a.y, a.z], np.float32)
+        self.ang_vel = np.array([a.x, a.y, a.z], np.float32) * np.array([self.gyro_scale, self.gyro_scale, 1.0], np.float32)
         self.have_imu = True
+        self.n_imu += 1
 
     def _cmd(self, m):
         self.cmd[:] = [m.linear.x, m.linear.y, m.angular.z]
@@ -129,6 +136,13 @@ class RLCmdVel(Node):
             return
         clocks, swing = self._gait()
         o = self._obs(clocks)
+        self.n_tick += 1
+        if self.debug and self.n_tick % 50 == 0:
+            print(f"[dbg] js {self.n_js} imu {self.n_imu} ticks {self.n_tick} | grav {np.round(o[3:6], 2)} "
+                  f"|angvel| {np.linalg.norm(self.ang_vel):.2f} | max|dof_pos| {np.abs(o[9:21]).max():.2f} "
+                  f"max|dof_vel*0.05| {np.abs(o[21:33]).max():.2f} | mean|a| {np.abs(self.last_a).mean():.2f} "
+                  f"cmd {np.round(self.cmd, 2)}", flush=True)
+            self.n_js = self.n_imu = 0
         if not self.hist:
             self.hist.extend([o] * HIST)
         else:
@@ -143,7 +157,7 @@ class RLCmdVel(Node):
         if self.trot_prior:
             target[4:8] += TROT_THIGH_SWING * (swing - 0.5 * float(swing.max()))
             target[8:12] += -TROT_CALF_LIFT * swing
-        self.prev_action = a.astype(np.float32)
+        self.prev_action = self.last_a = a.astype(np.float32)
         self._publish(target)
 
 
@@ -152,10 +166,14 @@ def main():
     ap.add_argument("--model", required=True)
     ap.add_argument("--no-trot-prior", action="store_true")
     ap.add_argument("--stand-thresh", type=float, default=0.05)
+    ap.add_argument("--gyro-scale", type=float, default=1.0,
+                    help="scale the IMU roll/pitch rates (not yaw) before they enter the obs: Gazebo wobbles ~2-2.4x MuJoCo in roll/pitch while yaw matches")
+    ap.add_argument("--wall-time", action="store_true", help="tick on wall-clock instead of /clock")
+    ap.add_argument("--debug", action="store_true", help="print obs/rate diagnostics once per second")
     args, ros_args = ap.parse_known_args()
     rclpy.init(args=ros_args)
     prior = os.environ.get("GO2_TROT_PRIOR", "0") == "1" and not args.no_trot_prior
-    rclpy.spin(RLCmdVel(args.model, prior, args.stand_thresh))
+    rclpy.spin(RLCmdVel(args.model, prior, args.stand_thresh, args.debug, not args.wall_time, args.gyro_scale))
 
 
 if __name__ == "__main__":

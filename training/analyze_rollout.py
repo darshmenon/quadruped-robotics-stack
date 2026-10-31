@@ -21,12 +21,12 @@ from eval_checkpoints import LAYOUTS, _build, _find_vecnorm  # noqa: E402
 from stable_baselines3 import PPO  # noqa: E402
 
 
-def _load(model_path, scene, cmd):
+def _load(model_path, scene, cmd, wz=0.0):
     vn = _find_vecnorm(model_path)
     last = None
     for layout in LAYOUTS:
         try:
-            env, core = _build(scene, cmd, layout, vn)
+            env, core = _build(scene, cmd, layout, vn, wz)
             return env, core, PPO.load(model_path, env=env)
         except (AssertionError, ValueError) as e:
             last = e

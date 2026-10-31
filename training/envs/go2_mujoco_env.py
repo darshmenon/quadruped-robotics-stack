@@ -208,6 +208,7 @@ GAIT_SWING_FORCE_WEIGHT = 0.5  # penalty on foot contact force while that foot s
 CMD_FLOOR_VX = 0.25         # early-curriculum minimum forward command, fades out by level 0.5
 CMD_MAX_VX_MIN = 0.45       # early-curriculum max forward command (was 0.15 at level 0)
 PROGRESS_WEIGHT = 3.0       # reward per m/s of forward speed along the command
+YAW_PROGRESS_WEIGHT = 3.0   # wide-cmd only: reward per rad/s of yaw rate in the commanded direction (dense; the exp kernel gave no gradient far from target)
 STALL_PENALTY = 1.0         # was a hard-coded 0.6
 # GO2_WIDE_CMD=1: sample stop / turn-in-place / mixed commands regardless of curriculum level, and
 # scale the trot prior with command size (its 0.45 rad calf lift exceeds the +-0.25 rad action
@@ -219,6 +220,7 @@ WIDE_CMD_TURN_P = 0.15      # probability of a pure-yaw command
 WIDE_CMD_MAX_VX = 0.5
 WIDE_CMD_MAX_VY = 0.15
 WIDE_CMD_MAX_WZ = 0.6
+YAW_STRIDE_GAIN = 3.5       # wide-cmd: yaw part of the per-side thigh stride gain (and its clip); >1 gives the prior more turning authority
 PRIOR_FULL_SPEED = 0.3      # command magnitude (m/s, yaw weighted 0.3) at which the prior is full strength
 LIN_TRACK_SIGMA = 0.04      # velocity-tracking kernel width (was 0.1)
 HEIGHT_WEIGHT = 10.0        # was 1.0
@@ -482,12 +484,13 @@ class Go2MujocoEnv(gym.Env):
                 # subtracts from the left (CCW turn = right legs stride further; at vx=0 the left side
                 # reverses, which turns the body in place). Calf lift follows |gain| so a stopped
                 # command lifts nothing.
-                g_lin, g_yaw = float(self.cmd[0]) / PRIOR_FULL_SPEED, float(self.cmd[2]) / WIDE_CMD_MAX_WZ
+                g_lin = float(self.cmd[0]) / PRIOR_FULL_SPEED
+                g_yaw = float(self.cmd[2]) / WIDE_CMD_MAX_WZ * YAW_STRIDE_GAIN
                 g = np.array([g_lin - g_yaw, g_lin + g_yaw, g_lin - g_yaw, g_lin + g_yaw])  # FL FR RL RR
-                g = np.clip(g, -1.0, 1.0).astype(np.float32)
+                g = np.clip(g, -YAW_STRIDE_GAIN, YAW_STRIDE_GAIN).astype(np.float32)
                 swing_ref = self._swing_s - 0.5 * float(np.max(self._swing_s))
                 off[4:8] = TROT_THIGH_SWING * swing_ref * g
-                off[8:12] = -TROT_CALF_LIFT * self._swing_s * np.abs(g)
+                off[8:12] = -TROT_CALF_LIFT * self._swing_s * np.clip(np.abs(g), 0.0, 1.0)
             else:
                 off[4:8] = TROT_THIGH_SWING * (self._swing_s - 0.5 * float(np.max(self._swing_s)))
                 off[8:12] = -TROT_CALF_LIFT * self._swing_s
@@ -607,6 +610,10 @@ class Go2MujocoEnv(gym.Env):
         # complying robot while removing the subsidy for frozen-in-place
         # stalling specifically.
         r_alive = 0.0 if is_stalling else ALIVE_BONUS
+        r_yaw_prog = 0.0
+        if self.wide_cmd and abs(float(self.cmd[2])) > 0.1:
+            r_yaw_prog = YAW_PROGRESS_WEIGHT * float(np.clip(
+                ang_vel[2] * np.sign(self.cmd[2]), -0.2, 1.5 * abs(float(self.cmd[2]))))
 
         r_air, r_slip = self._air_time_and_slip(contacts)
         # Body-contact and joint-limit penalties are what a sitting policy pays on
@@ -620,7 +627,7 @@ class Go2MujocoEnv(gym.Env):
         components = dict(
             lin=r_lin, ang=r_ang, vz=r_z, height=r_height,
             orient=r_orient, torque=r_torque, smooth=r_smooth, contact=r_contact,
-            stall=r_stall, alive=r_alive, progress=r_prog,
+            stall=r_stall, alive=r_alive, progress=r_prog, yaw_progress=r_yaw_prog,
             air_time=r_air, slip=r_slip,
             collision=r_col, soft_limit=r_lim,
         )

@@ -47,13 +47,13 @@ ACT_DEFAULT = np.array([DEFAULT_QPOS[JOINTS.index(n)] for n in ACT_ORDER], dtype
 
 
 class RLCmdVel(Node):
-    def __init__(self, model_path, trot_prior, stand_thresh, debug=False, sim_time=True, gyro_scale=1.0):
+    def __init__(self, model_path, trot_prior, stand_thresh, debug=False, sim_time=True, gyro_scale=1.0, yaw_fb=0.0):
         # Tick on /clock: Gazebo runs below real time in heavy worlds (~0.7x measured), and a wall-clock
         # 50 Hz loop then feeds the policy stale sensor frames and runs its gait clock too fast.
         super().__init__("rl_cmd_vel_go2_gz",
                          parameter_overrides=[Parameter("use_sim_time", Parameter.Type.BOOL, sim_time)])
         self.debug, self.n_js, self.n_imu, self.n_tick, self.last_a = debug, 0, 0, 0, np.zeros(12, np.float32)
-        self.trot_prior, self.stand_thresh, self.gyro_scale = trot_prior, stand_thresh, gyro_scale
+        self.trot_prior, self.stand_thresh, self.gyro_scale, self.yaw_fb = trot_prior, stand_thresh, gyro_scale, yaw_fb
         d = os.path.dirname(os.path.abspath(model_path))
         vn = next(p for p in (os.path.join(d, "vecnorm_final.pkl"),
                               os.path.join(d, "..", "vecnorm_final.pkl")) if os.path.exists(p))
@@ -119,7 +119,10 @@ class RLCmdVel(Node):
         freq_n = (self.gait_cmd[0] - GAIT_FREQ_RANGE[0]) / (GAIT_FREQ_RANGE[1] - GAIT_FREQ_RANGE[0] + 1e-6)
         feat = np.array([freq_n, self.gait_cmd[1], self.gait_cmd[2], self.gait_cmd[3],
                          self.gait_cmd[4] / GAIT_FOOTSWING_RANGE[1]], np.float32)
-        return np.concatenate([self.ang_vel * 0.25, gravity, self.cmd * np.array([2.0, 2.0, 0.25], np.float32),
+        cmd = self.cmd.copy()
+        if self.yaw_fb:  # P feedback on yaw rate: the policy's left bias / weak turn authority is corrected here
+            cmd[2] = np.clip(cmd[2] + self.yaw_fb * (cmd[2] - self.ang_vel[2]), -0.6, 0.6)
+        return np.concatenate([self.ang_vel * 0.25, gravity, cmd * np.array([2.0, 2.0, 0.25], np.float32),
                                self.q - DEFAULT_QPOS[:12], self.qd * 0.05, self.prev_action, feat, clocks])
 
     def _publish(self, target_act_order):
@@ -168,12 +171,13 @@ def main():
     ap.add_argument("--stand-thresh", type=float, default=0.05)
     ap.add_argument("--gyro-scale", type=float, default=1.0,
                     help="scale the IMU roll/pitch rates (not yaw) before they enter the obs: Gazebo wobbles ~2-2.4x MuJoCo in roll/pitch while yaw matches")
+    ap.add_argument("--yaw-fb", type=float, default=0.0, help="gain of the yaw-rate feedback added to the commanded wz (0 = off)")
     ap.add_argument("--wall-time", action="store_true", help="tick on wall-clock instead of /clock")
     ap.add_argument("--debug", action="store_true", help="print obs/rate diagnostics once per second")
     args, ros_args = ap.parse_known_args()
     rclpy.init(args=ros_args)
     prior = os.environ.get("GO2_TROT_PRIOR", "0") == "1" and not args.no_trot_prior
-    rclpy.spin(RLCmdVel(args.model, prior, args.stand_thresh, args.debug, not args.wall_time, args.gyro_scale))
+    rclpy.spin(RLCmdVel(args.model, prior, args.stand_thresh, args.debug, not args.wall_time, args.gyro_scale, args.yaw_fb))
 
 
 if __name__ == "__main__":

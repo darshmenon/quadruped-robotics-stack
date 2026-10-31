@@ -213,7 +213,7 @@ STALL_PENALTY = 1.0         # was a hard-coded 0.6
 # GO2_WIDE_CMD=1: sample stop / turn-in-place / mixed commands regardless of curriculum level, and
 # scale the trot prior with command size (its 0.45 rad calf lift exceeds the +-0.25 rad action
 # range, so the policy could never cancel it to stand still or turn in place).
-RAND_GAINS_KP_MAX = 15.0    # GO2_RAND_GAINS=1: kp scale log-uniform in [1, 15] (kp 20 -> 300 = Gazebo's); switches to implicitfast (Euler blows up past ~4x)
+RAND_GAINS_KP_MAX = float(os.environ.get("GO2_KP_MAX", "15.0"))    # GO2_RAND_GAINS=1: kp scale log-uniform in [1, 15] (kp 20 -> 300 = Gazebo's); switches to implicitfast (Euler blows up past ~4x)
 RAND_GAINS_KV_RATIO = (1.0, 4.0)  # kv scale = kp scale * U(1, 4): Gazebo's kv/kp (0.1) is 4x MuJoCo's (0.025)
 WIDE_CMD_STOP_P = 0.15      # probability of an all-zero command
 WIDE_CMD_TURN_P = 0.15      # probability of a pure-yaw command
@@ -254,6 +254,9 @@ class Go2MujocoEnv(gym.Env):
         self._swing_s = np.zeros(4, dtype=np.float32)
         self.wide_cmd = os.environ.get("GO2_WIDE_CMD", "0") == "1"
         self.rand_gains = os.environ.get("GO2_RAND_GAINS", "0") == "1"
+        # GO2_RAND_GYRO=1: per-episode roll/pitch gyro gain U(1, 2.5) + noise (Gazebo's IMU wobbles 2-2.4x MuJoCo's)
+        self.rand_gyro = os.environ.get("GO2_RAND_GYRO", "0") == "1"
+        self._gyro_gain = np.ones(3, dtype=np.float32)
         if self.rand_gains:
             self.model.opt.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
         self.push_robots = bool(push_robots)
@@ -508,6 +511,8 @@ class Go2MujocoEnv(gym.Env):
     def _get_obs(self) -> np.ndarray:
         d = self.data
         ang_vel   = d.sensor("ang_vel").data.astype(np.float32) * 0.25
+        if self.rand_gyro:
+            ang_vel = ang_vel * self._gyro_gain + self.np_random.normal(0.0, 0.01, 3).astype(np.float32)
         gravity   = self._gravity_vec()
         cmd_scaled = self.cmd * np.array([2.0, 2.0, 0.25], dtype=np.float32)
         if self.legs_only:
@@ -806,6 +811,9 @@ class Go2MujocoEnv(gym.Env):
         if not self.randomize_domain:
             return
         rng = self.np_random
+        if self.rand_gyro:
+            g = float(rng.uniform(1.0, float(os.environ.get("GO2_GYRO_MAX", "2.5"))))
+            self._gyro_gain = np.array([g, g, 1.0], dtype=np.float32)
         self.model.body_mass[self._base_body_id] = (
             self._base_mass * float(rng.uniform(0.85, 1.15)))
         self.model.geom_friction[self._floor_geom_id] = (

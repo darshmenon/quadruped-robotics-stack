@@ -1,0 +1,6 @@
+model,scene,cmd,fall_pct,steps,dist_m,vx,layout
+training/logs/mujoco_curriculum/best_walk_trotprior/go2_flat_walk.zip,flat,0.1,0.0,1000.0,3.8640498246020343,0.19320249123010172,"(True, 5, True, True)"
+training/logs/mujoco_curriculum/best_walk_trotprior/go2_flat_walk.zip,flat,0.2,0.0,1000.0,5.22300934405767,0.2611504672028835,"(True, 5, True, True)"
+training/logs/mujoco_curriculum/best_walk_trotprior/go2_flat_walk.zip,flat,0.3,0.0,1000.0,6.065056322764525,0.30325281613822624,"(True, 5, True, True)"
+training/logs/mujoco_curriculum/best_walk_trotprior/go2_flat_walk.zip,flat,0.4,0.0,1000.0,6.559226580337846,0.3279613290168923,"(True, 5, True, True)"
+training/logs/mujoco_curriculum/best_walk_trotprior/go2_flat_walk.zip,flat,0.5,0.0,1000.0,6.907946870225938,0.3453973435112969,"(True, 5, True, True)"

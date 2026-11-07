@@ -11,10 +11,7 @@ This repo already has the hard base: Go2 meshes, Gazebo Harmonic launch files, M
 
 ## Best Next Features
 
-1. **Autonomous indoor demo**
-   - One command launches the Go2 in the room world with RTAB-Map, frontier exploration, obstacle tracking, and RViz.
-   - Add map autosave when exploration completes.
-   - Add a short demo GIF under `docs/images/`.
+1. **Autonomous indoor demo** — one-command launch, obstacle tracking, and map autosave done (`launch/indoor_autonomy_go2.launch.py`, `scripts/frontier_explorer_go2.py` now calls `nav2_map_server`'s `map_saver_cli` into `maps/generated/` once exploration is declared complete). GIFs are scriptable headlessly: `scripts/record_go2_gif.py` films the in-world `showcase_cam` (room world) via `ros_gz_image` and builds the GIF with `scripts/make_gif.py` (same approach as the UR3 repo). Still missing: a good-looking take -- the CHAMP backend barely translates the robot, so try `locomotion:=nmpc` (needs the camera added to Quad-SDK's `go2_room.sdf` copy).
 
 2. **Dynamic obstacle simulation**
    - Add a simple moving cylinder/person model in the room world.
@@ -46,9 +43,7 @@ This repo already has the hard base: Go2 meshes, Gazebo Harmonic launch files, M
    - Publish both JSON state and ROS diagnostics.
    - Add a single `scripts/check_stack_go2.py` command for demos.
 
-8. **Session recording**
-   - Add a script wrapping `ros2 bag record` for `/tf`, `/odom`, `/points`, `/map`, `/cmd_vel`, `/obstacle_tracker/state`, and controller topics.
-   - Add a replay recipe in docs so demos can be debugged without rerunning Gazebo.
+8. **Session recording** — done: `scripts/record_go2_session.sh` wraps `ros2 bag record` for `/tf`, `/odom`, `/points`, `/map`, `/cmd_vel`, `/obstacle_tracker/state`, and more; replay recipe is in `docs/DEMOS.md`.
 
 9. **Benchmark worlds**
    - Keep the room world for indoor SLAM.

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import math
 import os
 import sys
 
@@ -22,6 +23,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.modules.setdefault("triton", None)
 
 import numpy as np
+import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
@@ -42,11 +44,26 @@ STAGE_DEFAULT_STEPS = {
     "flat": 1_000_000,
     "rough": 1_000_000,
     "stairs": 500_000,
+    "mixed": 1_500_000,
 }
+
+RESUME_LR = 1e-4
+# Action std sat at ~0.9 after 5M steps (init 1.0) with actions clipped to
+# [-1, 1], so the policy was mostly noise and saturated to get signal. Start
+# lower, drop the entropy bonus (it holds std up), and clamp stale std on resume.
+LOG_STD_INIT = -1.0
+MAX_RESUME_STD = 0.5
+
+# "mixed" trains one policy on every terrain at once: env i uses MIXED_TERRAINS[i % 3].
+MIXED_TERRAINS = ("flat", "rough", "stairs")
 
 
 def _make_stage_env(stage: str, cmd, rank, seed, curriculum_level,
                     obs_history: int, asymmetric: bool, gait: bool):
+    if stage == "mixed":
+        return _make_stage_env(MIXED_TERRAINS[rank % len(MIXED_TERRAINS)], cmd, rank, seed,
+                               curriculum_level, obs_history, asymmetric, gait)
+
     def _init():
         if stage == "flat":
             env = Go2MujocoEnv(
@@ -96,7 +113,7 @@ def _train_stage(stage: str, timesteps: int, n_envs: int, cmd, resume: str | Non
         for i in range(n_envs)])
 
     policy_cls = AsymmetricActorCriticPolicy if asymmetric else "MlpPolicy"
-    policy_kwargs = dict(net_arch=[512, 256, 128])
+    policy_kwargs = dict(net_arch=[512, 256, 128], log_std_init=LOG_STD_INIT)
 
     if resume and os.path.exists(resume):
         # Load vecnorm from same dir as checkpoint when possible.
@@ -108,7 +125,7 @@ def _train_stage(stage: str, timesteps: int, n_envs: int, cmd, resume: str | Non
             # name, so fall back to matching by save time instead below.
             ckpt_steps = None
         step_candidates = glob.glob(os.path.join(
-            os.path.dirname(resume), "vecnorm_*_steps.pkl"))
+            os.path.dirname(resume), "*vecnorm*_steps.pkl"))
         norm_path = None
         if step_candidates and ckpt_steps is not None:
             def _steps(p):
@@ -123,7 +140,10 @@ def _train_stage(stage: str, timesteps: int, n_envs: int, cmd, resume: str | Non
             # ever gets vecnorm_final.pkl) -- these aren't named
             # "*_steps.pkl" so _steps() above would crash on them; there's
             # normally just one, so no ranking needed.
-            fallback = glob.glob(os.path.join(LOG_ROOT, "*", "vecnorm_final.pkl"))
+            # Prefer the stats saved next to the checkpoint being resumed.
+            sibling = os.path.join(os.path.dirname(resume), "vecnorm_final.pkl")
+            fallback = ([sibling] if os.path.exists(sibling)
+                        else glob.glob(os.path.join(LOG_ROOT, "*", "vecnorm_final.pkl")))
             if fallback:
                 norm_path = fallback[0]
         if norm_path and os.path.exists(norm_path):
@@ -135,8 +155,16 @@ def _train_stage(stage: str, timesteps: int, n_envs: int, cmd, resume: str | Non
             vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=True,
                                    clip_obs=10.0, clip_reward=10.0)
             print("WARNING: no VecNormalize stats — fresh normalization")
-        model = PPO.load(resume, env=vec_env, tensorboard_log=log_dir)
+        # Loaded policies keep their saved 3e-4 lr, which overshoots target_kl
+        # on every update when fine-tuning (82 early stops in the mixed run).
+        model = PPO.load(resume, env=vec_env, tensorboard_log=log_dir,
+                         custom_objects={"learning_rate": RESUME_LR,
+                                         "lr_schedule": lambda _: RESUME_LR})
         model.target_kl = 0.03
+        with torch.no_grad():
+            model.policy.log_std.clamp_(max=math.log(MAX_RESUME_STD))
+        model.ent_coef = 0.0
+        print(f"Resume action std -> mean {model.policy.log_std.exp().mean().item():.3f}")
         reset_timesteps = False
     else:
         vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=True,
@@ -151,7 +179,7 @@ def _train_stage(stage: str, timesteps: int, n_envs: int, cmd, resume: str | Non
             gamma=0.99,
             gae_lambda=0.95,
             clip_range=0.2,
-            ent_coef=0.005,
+            ent_coef=0.0,
             target_kl=0.03,
             policy_kwargs=policy_kwargs,
             tensorboard_log=log_dir,
@@ -167,7 +195,8 @@ def _train_stage(stage: str, timesteps: int, n_envs: int, cmd, resume: str | Non
             # 50_000*n_envs steps (see the same fix already applied to
             # train_mujoco.py/train_agility.py/train_parkour.py/
             # train_recovery.py/train_stairs.py).
-            save_freq=max(50_000 // n_envs, 1), save_path=ckpt_dir, name_prefix=f"go2_{stage}"),
+            save_freq=max(50_000 // n_envs, 1), save_path=ckpt_dir, name_prefix=f"go2_{stage}",
+            save_vecnormalize=True),
         reset_num_timesteps=reset_timesteps,
         progress_bar=True,
     )
@@ -187,7 +216,7 @@ def main():
     parser = argparse.ArgumentParser(description="Staged flat→rough→stairs training")
     parser.add_argument("--stages", nargs="+",
                         default=["flat", "rough", "stairs"],
-                        choices=["flat", "rough", "stairs"])
+                        choices=["flat", "rough", "stairs", "mixed"])
     parser.add_argument("--timesteps", type=int, default=None,
                         help="override per-stage step count")
     parser.add_argument("--n_envs", type=int, default=8)

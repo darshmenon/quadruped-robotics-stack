@@ -11,6 +11,7 @@ Docs: [docs/PRETRAINED.md](../../docs/PRETRAINED.md).
 |--------|----------|
 | `go2_locomotion/` | Flat + rough Isaac PPO |
 | `go2_parkour/` | RPL / visual distill parkour |
+| `go2_walk_trotprior/` | MuJoCo PPO + clocked trot prior walker (`go2_flat_walk.zip` + `vecnorm_final.pkl`); needs `GO2_TROT_PRIOR=1` |
 | `go2_stairs/` | Genesis sim2real walk/stairs + CTS MoE stairs policy |
 
 These `*.pt` files are not Stable-Baselines3 zips. For the MuJoCo stairs course, train the local SB3 model:

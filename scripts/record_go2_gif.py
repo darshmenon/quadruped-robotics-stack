@@ -9,6 +9,7 @@ subscribed), saves frames to --frames-dir, then builds the GIF with scripts/make
 Frames are kept so the GIF can be rebuilt with another crop or speed.
 """
 import argparse
+import math
 import os
 import signal
 import subprocess
@@ -44,6 +45,11 @@ def main():
     ap.add_argument("--stack-cmd", default=None,
                     help="shell command to run instead of the indoor autonomy launch, "
                          "e.g. './scripts/walk_quadsdk_go2.sh 3.0 0.0 headless go2_room.sdf'")
+    ap.add_argument("--follow", action="store_true",
+                    help="move showcase_cam to track the robot (NMPC stack: /robot_1/state/ground_truth)")
+    ap.add_argument("--world", default="default", help="Gazebo world name, for the set_pose service")
+    ap.add_argument("--follow-offset", type=float, nargs=3, default=[-2.4, -2.4, 2.0],
+                    help="camera position relative to the robot (m)")
     ap.add_argument("--launch-args", nargs="*", default=["headless:=true", "rviz:=false"])
     args = ap.parse_args()
 
@@ -93,6 +99,36 @@ def main():
         state["n"] += 1
 
     node.create_subscription(Image, "/showcase_cam/image", on_image, 5)
+
+    if args.follow:
+        from quad_msgs.msg import RobotState
+        # Fixed look-at orientation (yaw toward the robot, pitched down), position
+        # translated with the robot, so the view pans smoothly instead of rotating.
+        ox, oy, oz = args.follow_offset
+        yaw = math.atan2(-oy, -ox)
+        pitch = math.atan2(oz, math.hypot(ox, oy))
+        qz, qw = math.sin(yaw / 2), math.cos(yaw / 2)
+        qy2, qw2 = math.sin(pitch / 2), math.cos(pitch / 2)
+        quat = (-qz * qy2, qw * qy2, qz * qw2, qw * qw2)  # qz(yaw) * qy(pitch) as (x, y, z, w)
+        follow = {"last": 0.0, "proc": None}
+
+        def on_state(m):
+            now = time.time()
+            if now - follow["last"] < 0.25:
+                return
+            proc = follow["proc"]
+            if proc is not None and proc.poll() is None:
+                return  # previous set_pose still in flight
+            follow["last"] = now
+            p = m.body.pose.position
+            req = (f'name: "showcase_cam" position: {{x: {p.x + ox}, y: {p.y + oy}, z: {oz}}} '
+                   f'orientation: {{x: {quat[0]}, y: {quat[1]}, z: {quat[2]}, w: {quat[3]}}}')
+            follow["proc"] = subprocess.Popen(
+                ["gz", "service", "-s", f"/world/{args.world}/set_pose", "--reqtype", "gz.msgs.Pose",
+                 "--reptype", "gz.msgs.Boolean", "--timeout", "500", "--req", req],
+                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        node.create_subscription(RobotState, "/robot_1/state/ground_truth", on_state, 5)
     try:
         time.sleep(args.warmup)
         print(f"camera frames seen during warmup: {state['seen']}", flush=True)

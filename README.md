@@ -240,6 +240,17 @@ Same PPO + trot-prior recipe, retrained with domain randomisation so one policy 
 
 Weights: `training/pretrained/go2_climb_scan/`. The 5 cm clip is at the top of this README.
 
+**Training options for the climber** (env vars, all off by default; the first two follow published ideas, the last two are our own):
+
+| Option | What it does |
+|---|---|
+| `GO2_STABILITY_W` | penalises base roll/pitch rate, a dynamic-stability term in the spirit of [arXiv 2604.02744](https://arxiv.org/abs/2604.02744) |
+| `GO2_FOOTHOLD_W` | charges for each planted foot on a step edge, like StairMaster's stair-edge penalty ([arXiv 2606.25765](https://arxiv.org/abs/2606.25765)); ours finds the edge by probing terrain height 4 cm ahead of and behind the foot, so it needs no gap map |
+| `GO2_MOE=<k>` | actor trunk becomes a gated mixture of `k` expert MLPs reading the height scan (`training/policies/moe_mlp.py`); needs training from scratch because the network shape changes |
+| `GO2_NO_STAND_SUBSIDY` | our own: drops alive/tracking credit while the robot is parked, so standing in front of a step never beats trying it |
+
+For Gazebo, which has no depth sensor here, `scripts/rl_cmd_vel_go2_gz.py --scan-steps X0 H TREAD N WIDTH` computes the same 18-point height scan from the known flight of steps and the robot pose on `/odom`.
+
 **Gazebo:** the blind 3 cm climber gets onto the flight (`training/envs/make_outdoor_steps_world.py`) but steps off the side; it does not cross the whole flight. Partial result.
 
 ![Go2 on 3 cm steps in Gazebo](docs/images/go2_gazebo_climb_h03.gif)

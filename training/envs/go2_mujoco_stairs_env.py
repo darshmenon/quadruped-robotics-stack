@@ -37,6 +37,10 @@ TOP_BONUS = 200.0           # one-off, on reaching 90% of the course's top heigh
 STALL_WINDOW = 250         # control steps (5 s): ending the episode if x advanced less than STALL_DIST
 STALL_DIST = 0.15
 NO_STAND_SUBSIDY = os.environ.get("GO2_NO_STAND_SUBSIDY", "0") == "1"  # drop alive/ang/contact/gait credit while parked (x moved < 5 cm in 1 s)
+STABILITY_W = float(os.environ.get("GO2_STABILITY_W", "0"))  # dynamic-stability reward: penalise base roll/pitch rate (0 = off)
+FOOTHOLD_W = float(os.environ.get("GO2_FOOTHOLD_W", "0"))  # edge-foothold penalty: planted foot within EDGE_PROBE of a riser (0 = off)
+EDGE_PROBE = 0.04          # m ahead/behind the foot to probe terrain height
+EDGE_STEP = 0.015          # m height change across the probe that counts as "on an edge"
 STALL_PENALTY = float(os.environ.get("GO2_STALL_PENALTY", "60"))  # extra, on a stall termination: parking at a step must cost more than trying it
 
 
@@ -183,6 +187,28 @@ class Go2MujocoStairsEnv(Go2MujocoEnv):
             for key in ("reach", "reach_dense", "reach_bonus"):
                 reward -= components.get(key, 0.0)
                 components[key] = 0.0
+
+        # Dynamic stability (cf. arXiv 2604.02744): a steady body on the steps beats a lurching one that tips over the edge.
+        if STABILITY_W > 0.0:
+            wxy = self.data.qvel[3:5]
+            r_stab = -STABILITY_W * float(wxy @ wxy)
+            components["stability"] = r_stab
+            reward += r_stab
+
+        # Edge-foothold penalty (our own): a planted foot sitting on a step edge is what slips and tips the robot,
+        # so probe terrain height just ahead of / behind each stance foot and charge for edge contacts.
+        if FOOTHOLD_W > 0.0:
+            n_edge = 0
+            for fp in self.data.xpos[self._foot_body_ids]:
+                z_here = self._cast_terrain_ray(fp[0], fp[1], fp[2] + 3.0)
+                if fp[2] - z_here > 0.03:  # swing foot, not planted
+                    continue
+                z_a = self._cast_terrain_ray(fp[0] + EDGE_PROBE, fp[1], fp[2] + 3.0)
+                z_b = self._cast_terrain_ray(fp[0] - EDGE_PROBE, fp[1], fp[2] + 3.0)
+                n_edge += int(abs(z_a - z_b) > EDGE_STEP)
+            r_foot = -FOOTHOLD_W * n_edge
+            components["foothold"] = r_foot
+            reward += r_foot
 
         # Soften pitch penalty a bit — stairs need nose-up / nose-down attitudes.
         old_orient = components["orient"]

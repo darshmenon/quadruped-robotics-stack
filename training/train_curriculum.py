@@ -114,7 +114,12 @@ def _train_stage(stage: str, timesteps: int, n_envs: int, cmd, resume: str | Non
         for i in range(n_envs)])
 
     policy_cls = AsymmetricActorCriticPolicy if asymmetric else "MlpPolicy"
+    if asymmetric and int(os.environ.get("GO2_MOE", "0")) > 1:  # mixture-of-experts actor trunk
+        from policies.moe_mlp import MoEActorCriticPolicy
+        policy_cls = MoEActorCriticPolicy
     policy_kwargs = dict(net_arch=[512, 256, 128], log_std_init=LOG_STD_INIT)
+    if policy_cls is not AsymmetricActorCriticPolicy and policy_cls != "MlpPolicy":
+        policy_kwargs["n_experts"] = int(os.environ["GO2_MOE"])
 
     if resume and os.path.exists(resume):
         # Load vecnorm from same dir as checkpoint when possible.

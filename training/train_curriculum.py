@@ -82,7 +82,8 @@ def _make_stage_env(stage: str, cmd, rank, seed, curriculum_level,
         elif stage == "stairs":
             env = Go2MujocoStairsEnv(
                 cmd=cmd, render_mode=None, randomize_domain=True,
-                use_curriculum=True, use_vision=False,
+                use_curriculum=True,
+                use_vision=os.environ.get("GO2_STAIRS_VISION", "0") == "1",  # 18-point height scan appended to the obs
                 initial_curriculum_level=curriculum_level,
                 gait_conditioned=gait, legs_only=True)
         else:

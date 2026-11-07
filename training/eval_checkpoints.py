@@ -48,7 +48,7 @@ def _find_vecnorm(model_path):
 
 def _build(scene, cmd, layout, vecnorm, wz=0.0):
     asym, hist, legs, *rest = layout
-    raw = pp._make_env(scene, (cmd, 0.0, wz), use_vision=False, obs_history=hist,
+    raw = pp._make_env(scene, (cmd, 0.0, wz), use_vision=(scene == "stairs" and os.environ.get("GO2_STAIRS_VISION", "0") == "1"), obs_history=hist,
                        asymmetric=asym, legs_only=legs, gait_conditioned=bool(rest and rest[0]))
     env = DummyVecEnv([lambda: Monitor(raw)])
     if vecnorm:

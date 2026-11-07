@@ -36,7 +36,8 @@ CLIMB_WEIGHT = 600.0       # reward per metre of terrain height gained under the
 TOP_BONUS = 200.0           # one-off, on reaching 90% of the course's top height
 STALL_WINDOW = 250         # control steps (5 s): ending the episode if x advanced less than STALL_DIST
 STALL_DIST = 0.15
-STALL_PENALTY = 60.0       # extra, on a stall termination: parking at a step must cost more than trying it
+NO_STAND_SUBSIDY = os.environ.get("GO2_NO_STAND_SUBSIDY", "0") == "1"  # drop alive/ang/contact/gait credit while parked (x moved < 5 cm in 1 s)
+STALL_PENALTY = float(os.environ.get("GO2_STALL_PENALTY", "60"))  # extra, on a stall termination: parking at a step must cost more than trying it
 
 
 class Go2MujocoStairsEnv(Go2MujocoEnv):
@@ -170,6 +171,13 @@ class Go2MujocoStairsEnv(Go2MujocoEnv):
             r_climb += TOP_BONUS
         components["climb"] = r_climb
         reward += r_climb
+
+        # Parked in front of a step still collected alive/ang/contact/gait credit (~+600 per episode vs ~+2 for progress):
+        # remove it while the base is not moving so standing never beats trying the step.
+        if NO_STAND_SUBSIDY and len(self._x_hist) >= 50 and abs(self._x_hist[-1] - self._x_hist[-50]) < 0.05:
+            for key in ("alive", "ang", "contact", "gait_symmetry", "lin"):
+                reward -= components.get(key, 0.0)
+                components[key] = 0.0
 
         if self.disable_arm_reach:
             for key in ("reach", "reach_dense", "reach_bonus"):

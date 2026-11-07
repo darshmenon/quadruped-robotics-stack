@@ -213,7 +213,7 @@ STALL_PENALTY = 1.0         # was a hard-coded 0.6
 # GO2_WIDE_CMD=1: sample stop / turn-in-place / mixed commands regardless of curriculum level, and
 # scale the trot prior with command size (its 0.45 rad calf lift exceeds the +-0.25 rad action
 # range, so the policy could never cancel it to stand still or turn in place).
-RAND_GAINS_KP_MAX = 15.0    # GO2_RAND_GAINS=1: kp scale log-uniform in [1, 15] (kp 20 -> 300 = Gazebo's); switches to implicitfast (Euler blows up past ~4x)
+RAND_GAINS_KP_MAX = float(os.environ.get("GO2_KP_MAX", "15.0"))    # GO2_RAND_GAINS=1: kp scale log-uniform in [1, 15] (kp 20 -> 300 = Gazebo's); switches to implicitfast (Euler blows up past ~4x)
 RAND_GAINS_KV_RATIO = (1.0, 4.0)  # kv scale = kp scale * U(1, 4): Gazebo's kv/kp (0.1) is 4x MuJoCo's (0.025)
 WIDE_CMD_STOP_P = 0.15      # probability of an all-zero command
 WIDE_CMD_TURN_P = 0.15      # probability of a pure-yaw command
@@ -254,6 +254,14 @@ class Go2MujocoEnv(gym.Env):
         self._swing_s = np.zeros(4, dtype=np.float32)
         self.wide_cmd = os.environ.get("GO2_WIDE_CMD", "0") == "1"
         self.rand_gains = os.environ.get("GO2_RAND_GAINS", "0") == "1"
+        self.lift_scale = float(os.environ.get("GO2_LIFT_SCALE", "1.0"))  # stairs: scales the prior calf lift (foot clearance)
+        # GO2_RAND_GYRO=1: per-episode roll/pitch gyro gain U(1, 2.5) + noise (Gazebo's IMU wobbles 2-2.4x MuJoCo's)
+        self.rand_gyro = os.environ.get("GO2_RAND_GYRO", "0") == "1"
+        self._gyro_gain = np.ones(3, dtype=np.float32)
+        # GO2_RAND_LAT=1: per-episode actuation latency of 0-2 control steps (20 ms each) + joint-reading noise;
+        # Gazebo runs below real time so the policy sees/acts on stale frames
+        self.rand_lat = os.environ.get("GO2_RAND_LAT", "0") == "1"
+        self._lat, self._ctrl_hist = 0, []
         if self.rand_gains:
             self.model.opt.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
         self.push_robots = bool(push_robots)
@@ -267,6 +275,9 @@ class Go2MujocoEnv(gym.Env):
         self.legs_only = bool(legs_only)
         self._renderer = None
         self._prev_action = np.zeros(12 if self.legs_only else ACT_DIM, dtype=np.float32)
+        if self.rand_lat:
+            self._lat = int(self.np_random.integers(0, 3))
+            self._ctrl_hist = []
         self._step_count = 0
         self._steps_since_push = 0
         self._max_steps = int(EPISODE_LEN_S / (SIM_DT * CTRL_DECIMATION))
@@ -490,10 +501,10 @@ class Go2MujocoEnv(gym.Env):
                 g = np.clip(g, -YAW_STRIDE_GAIN, YAW_STRIDE_GAIN).astype(np.float32)
                 swing_ref = self._swing_s - 0.5 * float(np.max(self._swing_s))
                 off[4:8] = TROT_THIGH_SWING * swing_ref * g
-                off[8:12] = -TROT_CALF_LIFT * self._swing_s * np.clip(np.abs(g), 0.0, 1.0)
+                off[8:12] = -self.lift_scale * TROT_CALF_LIFT * self._swing_s * np.clip(np.abs(g), 0.0, 1.0)
             else:
                 off[4:8] = TROT_THIGH_SWING * (self._swing_s - 0.5 * float(np.max(self._swing_s)))
-                off[8:12] = -TROT_CALF_LIFT * self._swing_s
+                off[8:12] = -self.lift_scale * TROT_CALF_LIFT * self._swing_s
         return off
 
     def _gait_feat(self) -> np.ndarray:
@@ -508,11 +519,16 @@ class Go2MujocoEnv(gym.Env):
     def _get_obs(self) -> np.ndarray:
         d = self.data
         ang_vel   = d.sensor("ang_vel").data.astype(np.float32) * 0.25
+        if self.rand_gyro:
+            ang_vel = ang_vel * self._gyro_gain + self.np_random.normal(0.0, 0.01, 3).astype(np.float32)
         gravity   = self._gravity_vec()
         cmd_scaled = self.cmd * np.array([2.0, 2.0, 0.25], dtype=np.float32)
         if self.legs_only:
             dof_pos = (d.qpos[7:19].astype(np.float32) - DEFAULT_QPOS[:12])
             dof_vel = d.qvel[6:18].astype(np.float32) * 0.05
+            if self.rand_lat:
+                dof_pos = dof_pos + self.np_random.normal(0.0, 0.005, 12).astype(np.float32)
+                dof_vel = dof_vel + self.np_random.normal(0.0, 0.01, 12).astype(np.float32)
             parts = [ang_vel, gravity, cmd_scaled, dof_pos, dof_vel, self._prev_action]
             if self.gait_conditioned:
                 parts.extend([self._gait_feat(), self._clock_inputs])
@@ -806,6 +822,9 @@ class Go2MujocoEnv(gym.Env):
         if not self.randomize_domain:
             return
         rng = self.np_random
+        if self.rand_gyro:
+            g = float(rng.uniform(1.0, float(os.environ.get("GO2_GYRO_MAX", "2.5"))))
+            self._gyro_gain = np.array([g, g, 1.0], dtype=np.float32)
         self.model.body_mass[self._base_body_id] = (
             self._base_mass * float(rng.uniform(0.85, 1.15)))
         self.model.geom_friction[self._floor_geom_id] = (
@@ -979,6 +998,10 @@ class Go2MujocoEnv(gym.Env):
             ctrl[:12] += self._trot_prior_offset()
             ctrl[ARM_ACT_SLICE] = (
                 self._arm_ik_baseline + action[ARM_ACT_SLICE] * ARM_RESIDUAL_SCALE)
+        if self.rand_lat:
+            self._ctrl_hist.append(ctrl.copy())
+            ctrl = self._ctrl_hist[max(0, len(self._ctrl_hist) - 1 - self._lat)]
+            del self._ctrl_hist[:-4]
         self.data.ctrl[:] = ctrl
         for _ in range(CTRL_DECIMATION):
             mujoco.mj_step(self.model, self.data)

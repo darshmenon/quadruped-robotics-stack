@@ -163,7 +163,11 @@ def _train_stage(stage: str, timesteps: int, n_envs: int, cmd, resume: str | Non
         model.target_kl = 0.03
         with torch.no_grad():
             model.policy.log_std.clamp_(max=math.log(MAX_RESUME_STD))
-        model.ent_coef = 0.0
+        # Stairs: a parked policy never discovers stepping up by luck, so allow an exploration floor / entropy bonus.
+        if os.environ.get("GO2_STD_FLOOR"):
+            with torch.no_grad():
+                model.policy.log_std.clamp_(min=math.log(float(os.environ["GO2_STD_FLOOR"])))
+        model.ent_coef = float(os.environ.get("GO2_ENT_COEF", "0.0"))
         print(f"Resume action std -> mean {model.policy.log_std.exp().mean().item():.3f}")
         reset_timesteps = False
     else:

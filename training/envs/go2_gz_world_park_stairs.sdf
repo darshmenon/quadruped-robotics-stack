@@ -1,0 +1,140 @@
+<?xml version="1.0" ?>
+<sdf version="1.8">
+  <world name="go2_rl">
+
+    <physics name="1ms" type="ode">
+      <max_step_size>0.005</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <!-- Same ambient/no-shadow setup as go2_gz_world_outdoor.sdf: software/
+         EGL Ogre2 fallback renders an unlit black scene with a shadow-
+         casting sun and no ambient fill, which also starves the gpu_lidar. -->
+    <scene>
+      <ambient>0.6 0.6 0.6 1</ambient>
+      <background>0.62 0.78 0.92 1</background>
+      <shadows>false</shadows>
+    </scene>
+
+    <light type="directional" name="sun">
+      <cast_shadows>false</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>200 200</size></plane></geometry>
+          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>200 200</size></plane></geometry>
+          <material><ambient>0.36 0.58 0.28 1</ambient><diffuse>0.36 0.58 0.28 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Park: paved lane, kerbs, dashes, trees, props, terrace -->
+    <model name="lane"><static>true</static><pose>16.000 0.000 0.0040 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>48.0 2.4 0.008</size></box></geometry><material><ambient>0.72 0.7 0.66 1</ambient><diffuse>0.72 0.7 0.66 1</diffuse></material></visual></link></model>
+    <model name="kerb_-1"><static>true</static><pose>16.000 -1.270 0.0150 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>48.0 0.14 0.03</size></box></geometry><material><ambient>0.88 0.88 0.86 1</ambient><diffuse>0.88 0.88 0.86 1</diffuse></material></visual></link></model>
+    <model name="kerb_1"><static>true</static><pose>16.000 1.270 0.0150 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>48.0 0.14 0.03</size></box></geometry><material><ambient>0.88 0.88 0.86 1</ambient><diffuse>0.88 0.88 0.86 1</diffuse></material></visual></link></model>
+    <model name="dash_0"><static>true</static><pose>-4.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_1"><static>true</static><pose>-2.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_2"><static>true</static><pose>0.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_3"><static>true</static><pose>2.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_4"><static>true</static><pose>4.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_5"><static>true</static><pose>6.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_6"><static>true</static><pose>8.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_7"><static>true</static><pose>10.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_8"><static>true</static><pose>12.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_9"><static>true</static><pose>14.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_10"><static>true</static><pose>16.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_11"><static>true</static><pose>18.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_12"><static>true</static><pose>20.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_13"><static>true</static><pose>22.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_14"><static>true</static><pose>24.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_15"><static>true</static><pose>26.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_16"><static>true</static><pose>28.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_17"><static>true</static><pose>30.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_18"><static>true</static><pose>32.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_19"><static>true</static><pose>34.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_20"><static>true</static><pose>36.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="dash_21"><static>true</static><pose>38.000 0.000 0.0095 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.7 0.07 0.003</size></box></geometry><material><ambient>0.98 0.98 0.98 1</ambient><diffuse>0.98 0.98 0.98 1</diffuse></material></visual></link></model>
+    <model name="step_1"><static>true</static><pose>6.150 0.000 0.0250 0 0 0.000</pose><link name="l"><collision name="c"><geometry><box><size>0.3 2.4 0.05</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision><visual name="v"><geometry><box><size>0.3 2.4 0.05</size></box></geometry><material><ambient>0.8 0.78 0.72 1</ambient><diffuse>0.8 0.78 0.72 1</diffuse></material></visual></link></model>
+    <model name="edge_1"><static>true</static><pose>6.020 0.000 0.0510 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.04 2.4 0.004</size></box></geometry><material><ambient>0.25 0.25 0.28 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual></link></model>
+    <model name="step_2"><static>true</static><pose>6.450 0.000 0.0500 0 0 0.000</pose><link name="l"><collision name="c"><geometry><box><size>0.3 2.4 0.1</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision><visual name="v"><geometry><box><size>0.3 2.4 0.1</size></box></geometry><material><ambient>0.8 0.78 0.72 1</ambient><diffuse>0.8 0.78 0.72 1</diffuse></material></visual></link></model>
+    <model name="edge_2"><static>true</static><pose>6.320 0.000 0.1010 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.04 2.4 0.004</size></box></geometry><material><ambient>0.25 0.25 0.28 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual></link></model>
+    <model name="step_3"><static>true</static><pose>6.750 0.000 0.0750 0 0 0.000</pose><link name="l"><collision name="c"><geometry><box><size>0.3 2.4 0.15000000000000002</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision><visual name="v"><geometry><box><size>0.3 2.4 0.15000000000000002</size></box></geometry><material><ambient>0.8 0.78 0.72 1</ambient><diffuse>0.8 0.78 0.72 1</diffuse></material></visual></link></model>
+    <model name="edge_3"><static>true</static><pose>6.620 0.000 0.1510 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.04 2.4 0.004</size></box></geometry><material><ambient>0.25 0.25 0.28 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual></link></model>
+    <model name="step_4"><static>true</static><pose>7.050 0.000 0.1000 0 0 0.000</pose><link name="l"><collision name="c"><geometry><box><size>0.3 2.4 0.2</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision><visual name="v"><geometry><box><size>0.3 2.4 0.2</size></box></geometry><material><ambient>0.8 0.78 0.72 1</ambient><diffuse>0.8 0.78 0.72 1</diffuse></material></visual></link></model>
+    <model name="edge_4"><static>true</static><pose>6.920 0.000 0.2010 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.04 2.4 0.004</size></box></geometry><material><ambient>0.25 0.25 0.28 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual></link></model>
+    <model name="landing"><static>true</static><pose>10.200 0.000 0.1000 0 0 0.000</pose><link name="l"><collision name="c"><geometry><box><size>6.0 2.4 0.2</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision><visual name="v"><geometry><box><size>6.0 2.4 0.2</size></box></geometry><material><ambient>0.74 0.72 0.68 1</ambient><diffuse>0.74 0.72 0.68 1</diffuse></material></visual></link></model>
+    <model name="landing_edge"><static>true</static><pose>7.220 0.000 0.2010 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.04 2.4 0.004</size></box></geometry><material><ambient>0.25 0.25 0.28 1</ambient><diffuse>0.25 0.25 0.28 1</diffuse></material></visual></link></model>
+    <model name="terrace_0"><static>true</static><pose>16.000 6.000 0.0600 0 0 0.000</pose><link name="l"><collision name="c"><geometry><box><size>10.0 1.2 0.12</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision><visual name="v"><geometry><box><size>10.0 1.2 0.12</size></box></geometry><material><ambient>0.8 0.77 0.7 1</ambient><diffuse>0.8 0.77 0.7 1</diffuse></material></visual></link></model>
+    <model name="terrace_1"><static>true</static><pose>16.000 7.200 0.1200 0 0 0.000</pose><link name="l"><collision name="c"><geometry><box><size>8.5 1.2 0.24</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision><visual name="v"><geometry><box><size>8.5 1.2 0.24</size></box></geometry><material><ambient>0.75 0.72 0.6499999999999999 1</ambient><diffuse>0.75 0.72 0.6499999999999999 1</diffuse></material></visual></link></model>
+    <model name="terrace_2"><static>true</static><pose>16.000 8.400 0.1800 0 0 0.000</pose><link name="l"><collision name="c"><geometry><box><size>7.0 1.2 0.36</size></box></geometry><surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface></collision><visual name="v"><geometry><box><size>7.0 1.2 0.36</size></box></geometry><material><ambient>0.7000000000000001 0.67 0.6 1</ambient><diffuse>0.7000000000000001 0.67 0.6 1</diffuse></material></visual></link></model>
+    <model name="post_0"><static>true</static><pose>11.500 -3.200 0.4500 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.12 0.12 0.9</size></box></geometry><material><ambient>0.45 0.3 0.18 1</ambient><diffuse>0.45 0.3 0.18 1</diffuse></material></visual></link></model>
+    <model name="post_1"><static>true</static><pose>13.300 -3.200 0.4500 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.12 0.12 0.9</size></box></geometry><material><ambient>0.45 0.3 0.18 1</ambient><diffuse>0.45 0.3 0.18 1</diffuse></material></visual></link></model>
+    <model name="post_2"><static>true</static><pose>15.100 -3.200 0.4500 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.12 0.12 0.9</size></box></geometry><material><ambient>0.45 0.3 0.18 1</ambient><diffuse>0.45 0.3 0.18 1</diffuse></material></visual></link></model>
+    <model name="post_3"><static>true</static><pose>16.900 -3.200 0.4500 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.12 0.12 0.9</size></box></geometry><material><ambient>0.45 0.3 0.18 1</ambient><diffuse>0.45 0.3 0.18 1</diffuse></material></visual></link></model>
+    <model name="post_4"><static>true</static><pose>18.700 -3.200 0.4500 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.12 0.12 0.9</size></box></geometry><material><ambient>0.45 0.3 0.18 1</ambient><diffuse>0.45 0.3 0.18 1</diffuse></material></visual></link></model>
+    <model name="post_5"><static>true</static><pose>20.500 -3.200 0.4500 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>0.12 0.12 0.9</size></box></geometry><material><ambient>0.45 0.3 0.18 1</ambient><diffuse>0.45 0.3 0.18 1</diffuse></material></visual></link></model>
+    <model name="rail"><static>true</static><pose>16.400 -3.200 0.8200 0 0 0.000</pose><link name="l"><visual name="v"><geometry><box><size>9.4 0.06 0.06</size></box></geometry><material><ambient>0.55 0.38 0.22 1</ambient><diffuse>0.55 0.38 0.22 1</diffuse></material></visual></link></model>
+    <include><name>tree_n0</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/pine%20tree/6</uri><static>true</static><pose>-2.35 5.08 0 0 0 0.000</pose></include>
+    <include><name>tree_s0</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/oak%20tree/7</uri><static>true</static><pose>1.30 -6.01 0 0 0 0.000</pose></include>
+    <include><name>tree_n1</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/oak%20tree/7</uri><static>true</static><pose>4.07 5.34 0 0 0 0.000</pose></include>
+    <include><name>tree_s1</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/pine%20tree/6</uri><static>true</static><pose>6.12 -5.49 0 0 0 0.000</pose></include>
+    <include><name>tree_n2</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/pine%20tree/6</uri><static>true</static><pose>9.07 5.42 0 0 0 0.000</pose></include>
+    <include><name>tree_s2</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/oak%20tree/7</uri><static>true</static><pose>12.14 -5.99 0 0 0 0.000</pose></include>
+    <include><name>tree_n3</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/oak%20tree/7</uri><static>true</static><pose>15.85 5.89 0 0 0 0.000</pose></include>
+    <include><name>tree_s3</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/pine%20tree/6</uri><static>true</static><pose>18.25 -5.83 0 0 0 0.000</pose></include>
+    <include><name>tree_n4</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/pine%20tree/6</uri><static>true</static><pose>22.25 6.04 0 0 0 0.000</pose></include>
+    <include><name>tree_s4</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/oak%20tree/7</uri><static>true</static><pose>25.15 -5.62 0 0 0 0.000</pose></include>
+    <include><name>tree_n5</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/oak%20tree/7</uri><static>true</static><pose>28.95 4.96 0 0 0 0.000</pose></include>
+    <include><name>tree_s5</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/pine%20tree/6</uri><static>true</static><pose>31.72 -5.75 0 0 0 0.000</pose></include>
+    <include><name>tree_n6</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/pine%20tree/6</uri><static>true</static><pose>33.29 5.04 0 0 0 0.000</pose></include>
+    <include><name>tree_s6</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/oak%20tree/7</uri><static>true</static><pose>36.62 -5.12 0 0 0 0.000</pose></include>
+    <include><name>tree_n7</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/oak%20tree/7</uri><static>true</static><pose>39.36 5.60 0 0 0 0.000</pose></include>
+    <include><name>tree_s7</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/pine%20tree/6</uri><static>true</static><pose>43.28 -5.65 0 0 0 0.000</pose></include>
+    <include><name>cone_0</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/construction%20cone/3</uri><static>true</static><pose>9.00 -1.55 0 0 0 0.000</pose></include>
+    <include><name>cone_1</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/construction%20cone/3</uri><static>true</static><pose>15.00 1.55 0 0 0 0.000</pose></include>
+    <include><name>cone_2</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/construction%20cone/3</uri><static>true</static><pose>21.00 -1.55 0 0 0 0.000</pose></include>
+    <include><name>cone_3</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/construction%20cone/3</uri><static>true</static><pose>27.00 1.55 0 0 0 0.000</pose></include>
+    <include><name>barrier_a</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/jersey%20barrier/6</uri><static>true</static><pose>24.00 2.60 0 0 0 1.571</pose></include>
+    <include><name>barrier_b</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/jersey%20barrier/6</uri><static>true</static><pose>24.00 -2.60 0 0 0 1.571</pose></include>
+    <include><name>bench_a</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/foodcourtbenchlong/2</uri><static>true</static><pose>12.00 -2.40 0 0 0 0.000</pose></include>
+    <include><name>bench_b</name><uri>file:///home/asimov/.gz/fuel/fuel.gazebosim.org/openrobotics/models/foodcourtbenchlong/2</uri><static>true</static><pose>30.00 2.40 0 0 0 3.142</pose></include>
+    <!-- Follow camera: moved with the set_pose service by scripts/record_go2_rl_gz.py; off unless subscribed -->
+    <model name="showcase_cam">
+      <static>false</static>
+      <pose>-2 -3 1.5 0 0.3 1.0</pose>
+      <link name="link">
+        <gravity>false</gravity>
+        <inertial><mass>0.1</mass><inertia><ixx>0.001</ixx><iyy>0.001</iyy><izz>0.001</izz></inertia></inertial>
+        <sensor name="showcase_cam" type="camera">
+          <always_on>0</always_on>
+          <update_rate>15</update_rate>
+          <topic>showcase_cam/image</topic>
+          <camera>
+            <horizontal_fov>1.2</horizontal_fov>
+            <image><width>800</width><height>450</height><format>R8G8B8</format></image>
+            <clip><near>0.1</near><far>40</far></clip>
+          </camera>
+        </sensor>
+      </link>
+    </model>
+</world>
+</sdf>

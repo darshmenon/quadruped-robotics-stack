@@ -20,9 +20,9 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(ROOT, "training"))
 
 
-def rollout(model, cmd, steps, scene, out):
+def rollout(model, cmd, steps, scene, out, wz=0.0):
     import analyze_rollout as ar  # imports play_policy (mujoco env) before SB3
-    env, core, ppo = ar._load(model, scene, cmd)
+    env, core, ppo = ar._load(model, scene, cmd, wz)
     obs = env.reset()
     q = [core.data.qpos.copy()]
     for _ in range(steps):
@@ -35,13 +35,16 @@ def rollout(model, cmd, steps, scene, out):
     print(f"rollout: {len(q)} steps, forward {q[-1][0] - q[0][0]:+.2f} m, min z {min(x[2] for x in q):.2f}")
 
 
-def render(qpath, out, every, ctrl_dt, cam_mode):
+def render(qpath, out, every, ctrl_dt, cam_mode, hide_arm=False):
     import mujoco
     from PIL import Image
     from envs.go2_mujoco_env import Go2MujocoEnv
     q = np.load(qpath)
     core = Go2MujocoEnv(render_mode=None, legs_only=True, randomize_domain=False, use_curriculum=False)
     m, d = core.model, core.data
+    if hide_arm:  # visual only: the arm bodies (arm_base .. right_finger) stay in the physics
+        first = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "arm_base")
+        m.geom_rgba[m.geom_bodyid >= first, 3] = 0.0
     r = mujoco.Renderer(m, 360, 480)
     bid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "base")
     cam = mujoco.MjvCamera()
@@ -73,23 +76,25 @@ def main():
     ap.add_argument("--model")
     ap.add_argument("--scene", default="flat", choices=["flat", "stairs", "rough"])
     ap.add_argument("--cmd", type=float, default=0.3)
+    ap.add_argument("--wz", type=float, default=0.0, help="yaw-rate command (rad/s)")
     ap.add_argument("--seconds", type=float, default=15.0)
     ap.add_argument("--every", type=int, default=2, help="render every Nth control step (50 Hz)")
+    ap.add_argument("--no-arm", action="store_true", help="hide the stowed arm in the render (physics unchanged)")
     ap.add_argument("--cam", default="side", choices=["side", "follow"])
     ap.add_argument("--out", default="go2_rollout")
     ap.add_argument("--_render", default=None, help=argparse.SUPPRESS)
     args = ap.parse_args()
 
     if args._render:  # child: render only
-        render(args._render, args.out, args.every, 0.02, args.cam)
+        render(args._render, args.out, args.every, 0.02, args.cam, args.no_arm)
         return
     steps = int(args.seconds / 0.02)
     with tempfile.TemporaryDirectory() as tmp:
         qpath = os.path.join(tmp, "q.npy")
-        rollout(args.model, args.cmd, steps, args.scene, qpath)
+        rollout(args.model, args.cmd, steps, args.scene, qpath, args.wz)
         env = dict(os.environ, MUJOCO_GL="osmesa", PYOPENGL_PLATFORM="osmesa")
         subprocess.run([sys.executable, os.path.abspath(__file__), "--_render", qpath, "--out",
-                        args.out, "--every", str(args.every), "--cam", args.cam], check=True, env=env)
+                        args.out, "--every", str(args.every), "--cam", args.cam] + (["--no-arm"] if args.no_arm else []), check=True, env=env)
 
 
 if __name__ == "__main__":

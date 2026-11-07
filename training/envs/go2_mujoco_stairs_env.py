@@ -26,11 +26,17 @@ except ImportError:
     from go2_mujoco_env import Go2MujocoEnv, OBS_DIM as BASE_OBS_DIM
     from go2_mujoco_vision_env import SCAN_DIM, SCAN_GRID
 
-STAIRS_SCENE_XML = os.path.join(os.path.dirname(__file__), "go2_stairs_scene.xml")
+STAIRS_SCENE_XML = os.environ.get("GO2_STAIRS_SCENE") or os.path.join(os.path.dirname(__file__), "go2_stairs_scene.xml")
 
 # Curriculum gates: encourage reaching farther along +X before speeding up.
 PROGRESS_WEIGHT = 1.2
 MAX_CURRICULUM_LEVEL = 0.85
+# Standing at the first step is otherwise a safe optimum (alive bonus keeps paying, climbing risks a fall):
+CLIMB_WEIGHT = 600.0       # reward per metre of terrain height gained under the base (potential shaping)
+TOP_BONUS = 200.0           # one-off, on reaching 90% of the course's top height
+STALL_WINDOW = 250         # control steps (5 s): ending the episode if x advanced less than STALL_DIST
+STALL_DIST = 0.15
+STALL_PENALTY = 60.0       # extra, on a stall termination: parking at a step must cost more than trying it
 
 
 class Go2MujocoStairsEnv(Go2MujocoEnv):
@@ -53,6 +59,7 @@ class Go2MujocoStairsEnv(Go2MujocoEnv):
         self.disable_arm_reach = disable_arm_reach
         self._scan_geomid = np.zeros(1, dtype=np.int32)
         self._prev_x = 0.0
+        self._prev_tz, self._top_given, self._x_hist = 0.0, False, []
 
         original_scene = base_module.SCENE_XML
         base_module.SCENE_XML = STAIRS_SCENE_XML
@@ -154,6 +161,16 @@ class Go2MujocoStairsEnv(Go2MujocoEnv):
         components["progress"] = r_progress
         reward += r_progress
 
+        # Height-gain shaping + one-off bonus at the top of the steps.
+        dz = terrain_z - self._prev_tz
+        self._prev_tz = terrain_z
+        r_climb = CLIMB_WEIGHT * float(np.clip(dz, -0.25, 0.25))
+        if not self._top_given and terrain_z >= 0.9 * self._top_z:
+            self._top_given = True
+            r_climb += TOP_BONUS
+        components["climb"] = r_climb
+        reward += r_climb
+
         if self.disable_arm_reach:
             for key in ("reach", "reach_dense", "reach_bonus"):
                 reward -= components.get(key, 0.0)
@@ -169,6 +186,11 @@ class Go2MujocoStairsEnv(Go2MujocoEnv):
         return reward, components
 
     def _is_terminated(self) -> bool:
+        self._x_hist.append(float(self.data.qpos[0]))
+        del self._x_hist[:-STALL_WINDOW]
+        self._stalled = len(self._x_hist) == STALL_WINDOW and self._x_hist[-1] - self._x_hist[0] < STALL_DIST
+        if self._stalled:
+            return True  # stalled (typically parked in front of a step)
         terrain_z = self._terrain_height_under_base()
         height_above = float(self.data.qpos[2]) - terrain_z
         # Allow slightly higher peaks on ledges / stair landings.
@@ -183,11 +205,18 @@ class Go2MujocoStairsEnv(Go2MujocoEnv):
             np.clip(self.curriculum_level, 0.0, MAX_CURRICULUM_LEVEL)
         )
         self._prev_x = float(self.data.qpos[0])
+        self._prev_tz, self._top_given, self._x_hist = 0.0, False, []
+        # top of the course = highest geom top surface (any scene: the default course or a make_step_scene staircase)
+        self._top_z = float(max(self.model.geom_pos[g][2] + self.model.geom_size[g][2]
+                                for g in range(self.model.ngeom) if self.model.geom_type[g] == mujoco.mjtGeom.mjGEOM_BOX
+                                and self.model.geom_bodyid[g] == 0)) if not hasattr(self, "_top_z") else self._top_z
         info["x"] = self._prev_x
         return obs, info
 
     def step(self, action):
         obs, reward, terminated, truncated, info = super().step(action)
+        if terminated and getattr(self, "_stalled", False):
+            reward -= STALL_PENALTY
         info["x"] = float(self.data.qpos[0])
         return obs, reward, terminated, truncated, info
 

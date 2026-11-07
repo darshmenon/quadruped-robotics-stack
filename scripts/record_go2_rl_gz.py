@@ -34,6 +34,59 @@ def stop(p):
             continue
 
 
+def start_gui_capture(args, env):
+    """Find the Gazebo window, make its camera follow the robot, and start recording only that window with ffmpeg."""
+    wid = None
+    for _ in range(60):
+        tree = subprocess.run(["xwininfo", "-root", "-tree"], capture_output=True, text=True).stdout
+        best = 0
+        for line in tree.splitlines():
+            if "Gazebo" in line and "x" in line and line.strip().startswith("0x"):
+                m = __import__("re").search(r"(\d+)x(\d+)\+", line)
+                if m and int(m.group(1)) * int(m.group(2)) > best:
+                    best, wid = int(m.group(1)) * int(m.group(2)), line.split()[0]
+        if wid:
+            break
+        time.sleep(1.0)
+    if not wid:
+        print("no Gazebo window found -- not recording", flush=True)
+        return None
+    ox, oy, oz = args.gui_offset
+    try:  # bring the Gazebo window to the front (EWMH _NET_ACTIVE_WINDOW), so the capture is not of whatever covers it
+        from Xlib import X, display, protocol
+        d = display.Display(os.environ.get("DISPLAY", ":0"))
+        root = d.screen().root
+        win = d.create_resource_object("window", int(wid, 16))
+        ev = protocol.event.ClientMessage(window=win, client_type=d.intern_atom("_NET_ACTIVE_WINDOW"), data=(32, [1, X.CurrentTime, 0, 0, 0]))
+        root.send_event(ev, event_mask=X.SubstructureRedirectMask | X.SubstructureNotifyMask)
+        d.flush()
+    except Exception as e:
+        print(f"could not raise the Gazebo window: {e}", flush=True)
+    for svc, rtype, req in (("/gui/follow", "gz.msgs.StringMsg", 'data: "go2"'),
+                            ("/gui/follow/offset", "gz.msgs.Vector3d", f"x: {ox} y: {oy} z: {oz}")):
+        r = subprocess.run(["gz", "service", "-s", svc, "--reqtype", rtype, "--reptype", "gz.msgs.Boolean", "--timeout", "3000",
+                            "--req", req], env=env, capture_output=True, text=True)
+        print(f"{svc}: {(r.stdout + r.stderr).strip()[:60] or 'no reply'}", flush=True)
+    time.sleep(1.5)
+    mp4 = str(Path(args.out).with_suffix(".mp4"))
+    print(f"recording window {wid} -> {mp4}", flush=True)
+    return subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "x11grab", "-framerate", str(args.gui_fps),
+                             "-window_id", wid, "-i", os.environ.get("DISPLAY", ":0"), "-vf", "crop=trunc(iw/2)*2:trunc(ih/2)*2",
+                             "-c:v", "libx264", "-preset", "veryfast",
+                             "-pix_fmt", "yuv420p", mp4], stdin=subprocess.PIPE), mp4
+
+
+def stop_gui_capture(grab):
+    proc, mp4 = grab
+    try:
+        proc.stdin.write(b"q")
+        proc.stdin.flush()
+        proc.wait(timeout=30)
+    except Exception:
+        proc.kill()
+    print(f"saved {mp4}", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", required=True)
@@ -52,6 +105,9 @@ def main():
     ap.add_argument("--fps", type=float, default=8.0)
     ap.add_argument("--max-mb", type=float, default=3.0)
     ap.add_argument("--world", default=str(REPO / "training/envs/go2_gz_world_open.sdf"))
+    ap.add_argument("--gui", action="store_true", help="open the Gazebo window (follows the robot) and screen-record that window only")
+    ap.add_argument("--gui-fps", type=int, default=15)
+    ap.add_argument("--gui-offset", type=float, nargs=3, default=[-1.6, -1.6, 1.0], help="GUI follow-camera offset from the robot (m)")
     args = ap.parse_args()
 
     urdf = "/tmp/go2_gz_noarm.urdf"
@@ -85,8 +141,8 @@ def main():
     from rclpy.parameter import Parameter
 
     try:
-        procs.append(spawn(f"ros2 launch {REPO}/training/launch/gazebo_rl.launch.py headless:=true urdf:={urdf} "
-                           f"world:={args.world} stand_duration:=9.0 enable_lidar3d:=false enable_octomap:=false "
+        procs.append(spawn(f"ros2 launch {REPO}/training/launch/gazebo_rl.launch.py urdf:={urdf} "
+                           f"world:={args.world} headless:={'false' if args.gui else 'true'} stand_duration:=9.0 enable_lidar3d:=false enable_octomap:=false "
                            "p_gain:=20 d_gain:=1.0 mu:=1.0", open(log, "w")))
         print(f"domain {d}, launch log {log}", flush=True)
         time.sleep(args.stand_wait)
@@ -132,7 +188,7 @@ def main():
 
         def move_camera():
             p = st["pose"]
-            if p is None or (st["cam"] is not None and st["cam"].poll() is None):
+            if args.gui or p is None or (st["cam"] is not None and st["cam"].poll() is None):
                 return
             cx, cy, cz = p[0] + ox, p[1] + oy, oz
             yaw = math.atan2(p[1] - cy, p[0] - cx)
@@ -157,6 +213,8 @@ def main():
         start = st["pose"]
         st["ref"], st["t0"] = start[3], start[4]
         print(f"start pose x={start[0]:.2f} y={start[1]:.2f} yaw={math.degrees(start[3]):.0f} deg", flush=True)
+        grab = None
+        gui_prepared = False
         wall0 = time.time()
         while st["pose"][4] - st["t0"] < args.seconds and time.time() - wall0 < args.seconds * 12:
             p = st["pose"]
@@ -166,8 +224,12 @@ def main():
             m.angular.z = max(-args.wz_max, min(args.wz_max, args.steer_gain * err))
             pub.publish(m)
             st["path"].append((p[4] - st["t0"], p[0], p[1], p[2], p[3]))
+            if args.gui and grab is None and math.hypot(p[0] - start[0], p[1] - start[1]) > 0.1:
+                grab = start_gui_capture(args, env)  # the clip starts when the robot starts moving
             move_camera()
             time.sleep(0.1)
+        if grab is not None:
+            stop_gui_capture(grab)
         end = st["pose"]
         dt = end[4] - st["t0"]
         dist = math.hypot(end[0] - start[0], end[1] - start[1])
@@ -187,6 +249,14 @@ def main():
                     os.kill(int(pid), signal.SIGKILL)
             except (OSError, ValueError):
                 pass
+    if args.gui:
+        mp4 = str(Path(args.out).with_suffix(".mp4"))
+        if not os.path.exists(mp4):
+            return 1
+        vf = f"fps={args.fps},scale={args.width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=96[p];[b][p]paletteuse"
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", mp4, "-vf", vf, args.out])
+        print(f"gif: {args.out} ({os.path.getsize(args.out) / 1e6:.2f} MB)", flush=True)
+        return 0
     if st["n"] > 5:
         subprocess.run([sys.executable, str(REPO / "scripts/make_gif.py"), str(frames), args.out,
                         "--width", str(args.width), "--fps", str(args.fps), "--max-mb", str(args.max_mb)])

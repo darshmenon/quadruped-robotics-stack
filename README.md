@@ -5,25 +5,32 @@
 ![MuJoCo](https://img.shields.io/badge/MuJoCo-3.1-green.svg)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)
 
-A ROS2 + Gazebo + MuJoCo workspace for simulating and walking quadruped robots, with three interchangeable locomotion backends (RL, CHAMP, Quad-SDK NMPC) and an RL training pipeline on top.
+![Go2 walking under Quad-SDK NMPC control](docs/images/go2_walking.gif)
+
+A ROS2 + Gazebo + MuJoCo workspace for simulating and walking quadruped robots, with three interchangeable locomotion backends (RL, CHAMP, Quad-SDK NMPC) and an RL training pipeline on top. One PPO policy trained in MuJoCo also runs in Gazebo; Gazebo vs Quad-SDK NMPC numbers are in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 **What's working:**
 - **RL locomotion** — PPO trained end-to-end in MuJoCo (no hand-written gait/IK). Also: blind-vs-sighted rough-terrain comparison, fall recovery, asymmetric critic + staged curriculum, HL navigation. See [RL Policy Training](#rl-policy-training).
 - **Quad-SDK NMPC** — a real Unitree Go2 config stands up, plans a path, solves NMPC in real time (~20-30ms/solve), and walks to a goal at ~0.7 m/s. See [Quad-SDK (NMPC locomotion)](#quad-sdk-nmpc-locomotion--go2-walks).
 - **CHAMP** — kinematic gait engine, quick dependency-light walking (generic reference robot; not wired to Go2's physics, see note below).
-- **Stairs & ledges, indoor autonomy (3D SLAM), arena/warehouse/moving-obstacle worlds** — one-command Gazebo demos.
+- **SLAM & mapping** — 2D SLAM Toolbox and 3D LiDAR SLAM with RTAB-Map plus frontier exploration, on both CHAMP and NMPC locomotion. See [SLAM & Autonomy](#slam--autonomy).
+- **Stairs & ledges, indoor autonomy, arena/warehouse/moving-obstacle worlds** — one-command Gazebo demos.
 - **Go2 model weights** — local SB3 `.zip` checkpoints (resumable) + downloadable Isaac/rsl_rl/Genesis `.pt` files. See [docs/PRETRAINED.md](docs/PRETRAINED.md).
 - 14 research PDFs under [docs/papers/](docs/papers/README.md).
 
 **Go2 is the only fully working robot** (real URDF/meshes, both locomotion backends). The other `urdf/*_config/` folders are CHAMP config stubs carried over from upstream examples — they reference external ROS1 `*_description` packages that aren't vendored here, so they don't spawn as-is.
 
-| MuJoCo: walking (RL, `go2_walk_lat2`) | MuJoCo: climbing four 5 cm steps (RL + height scan) |
+**Walking (RL, `go2_walk_lat2`)**
+
+| Gazebo | MuJoCo |
 |---|---|
-| ![Go2 walking in MuJoCo](docs/images/go2_walk_v2_forward.gif) | ![Go2 climbing steps in MuJoCo](docs/images/go2_stairs_climb_h05.gif) |
+| ![Go2 walking in Gazebo](docs/images/go2_gazebo_open_v3.gif) | ![Go2 walking in MuJoCo](docs/images/go2_mujoco_window_walk.gif) |
 
-The climbing clip is the best of 25 attempts; the policy reaches the top in about 60% of episodes. Training and results: [Step climbing](#step-climbing-in-progress).
+**Climbing four 5 cm steps (RL + height scan, MuJoCo)**
 
-![Go2 walking under Quad-SDK NMPC control](docs/images/go2_walking.gif)
+![Go2 climbing four 5 cm steps in MuJoCo](docs/images/go2_mujoco_window_climb_h05.gif)
+
+The climbing clip is the best of 3 live attempts; the policy reaches the top in about 60% of episodes. Details: [Walking](#walking-policies) and [Step climbing](#step-climbing-in-progress).
 
 ---
 
@@ -33,8 +40,14 @@ The climbing clip is the best of 25 attempts; the policy reaches the top in abou
 - [Quick Start](#quick-start)
 - [Locomotion Backends](#locomotion-backends)
 - [RL Policy Training](#rl-policy-training)
+  - [Walking policies](#walking-policies)
+  - [Step climbing](#step-climbing-in-progress)
+  - [Other RL pipelines](#rough-terrain--vision-blind-vs-sighted)
 - [Model Policies](#model-policies)
 - [SLAM & Autonomy](#slam--autonomy)
+  - [2D SLAM](#2d-slam-slam-toolbox)
+  - [3D LiDAR SLAM (RTAB-Map)](#3d-lidar-slam--mapping-rtab-map)
+  - [Nav2](#nav2)
 - [Available Robots](#available-robots)
 - [Manipulator Arm](#manipulator-arm)
 - [Intelligence Modules](#intelligence-modules)
@@ -166,7 +179,9 @@ pip install -r requirements.txt
 ```
 Use the matching `vecnorm_<steps>_steps.pkl` when resuming — stale normalization stats can make a good checkpoint look broken. Output: `training/logs/mujoco/`. View curves: `tensorboard --logdir training/logs/mujoco`.
 
-#### Current walker: PPO + clocked trot prior
+### Walking policies
+
+#### Baseline walker: PPO + clocked trot prior (forward only)
 
 A residual policy on top of a gait-clock trot (`GO2_TROT_PRIOR=1`), trained on flat ground with a progress reward and a centred gait-contact reward. It walks forward without falling and reaches the commanded 0.30 m/s.
 
@@ -191,7 +206,7 @@ GO2_TROT_PRIOR=1 python3 scripts/render_rollout.py --model <checkpoint.zip> --cm
 python3 scripts/plot_walk_progress.py   # regenerates the graph above from docs/data/*.csv
 ```
 
-Limits: forward walking on flat ground only. The curriculum stayed at level 0.02, so the policy has never been trained on turning, sideways or stopping commands, and it follows the speed command loosely (slow commands are overshot, fast ones undershot). Any evaluation or playback needs `GO2_TROT_PRIOR=1`, otherwise the observations don't match.
+Superseded by [`go2_walk_lat2`](#latest-walker-go2_walk_lat2-training-and-progress) below for turning and Gazebo. Limits of this baseline: forward walking on flat ground only. The curriculum stayed at level 0.02, so the policy has never been trained on turning, sideways or stopping commands, and it follows the speed command loosely (slow commands are overshot, fast ones undershot). Any evaluation or playback needs `GO2_TROT_PRIOR=1`, otherwise the observations don't match.
 
 Older per-task reward curves (different reward functions, so the panels aren't comparable with each other or with the walker above) are in [docs/images/eval_comparison.png](docs/images/eval_comparison.png), regenerated by `python3 scripts/plot_eval_comparison.py`. Notable: `flat walk (gated reward)` climbs to ~2300 by 3.6M steps then collapses — a reach-reward exploit, see [CHANGELOG](docs/CHANGELOG.md).
 
@@ -209,29 +224,25 @@ Same PPO + trot-prior recipe, retrained with domain randomisation so one policy 
 | + gain/gyro randomisation | Better, still unstable |
 | + latency randomisation (`lat2`) | Walks ~0.35 m/s in Gazebo with no gyro scaling |
 
-Gazebo clips (open field, park lane): [open](docs/images/go2_gazebo_open_v2.gif), [park](docs/images/go2_gazebo_park.gif). Worlds are generated by `training/envs/make_park_world.py`.
+**Limits:** turns reliably only in place (walking while turning can still fall, and turning gets worse with longer training), and heading drifts in Gazebo without the heading-hold controller.
 
-Limits: turns reliably only in place (walking while turning can still fall, and turning gets worse with longer training), and heading drifts in Gazebo without the heading-hold controller.
+### Step climbing (in progress)
 
-#### Step climbing (in progress)
-
-`training/run_step_curriculum.sh` trains on four solid steps (`training/envs/make_step_scene.py`), raising the riser height stage by stage (0.03 → 0.05 → 0.10 → 0.15 → 0.20 m), with a climb reward, a top bonus and a stall penalty.
-
-![Go2 climbing four 3 cm steps](docs/images/go2_stairs_climb_h03.gif)
+`training/run_step_curriculum.sh` trains on four solid steps (`training/envs/make_step_scene.py`), raising the riser height stage by stage, with a climb reward, a top bonus and a stall penalty.
 
 | Variant | Status |
 |---|---|
-| Blind, 0.03 m steps | Reaches ~3 of 4 steps on average; ~2 of 10 attempts clear all four (clip above is a best-of-10 run) |
-| Blind, 0.05 m steps | Collapsed into stalling before the steps, no progress |
-| Height-scan (18 points, `GO2_STAIRS_VISION=1`), 0.03 m | Solved: 0% falls, 3.6 m forward (clears all four steps); weights in `training/pretrained/go2_climb_scan/` |
-| Height-scan, 0.05 m (4 steps) | Partial: reaches the top in 18 of 30 episodes (60%), climbs at least one step in 28 of 30, still falls in the rest. Needed `GO2_NO_STAND_SUBSIDY=1` (drops the alive/tracking credit while parked) plus a larger stall penalty; without it the policy learned to park in front of the first step. Weights: `go2_stairs_h05.zip` |
-| Height-scan, 0.10 m and above | Not started: waiting for 0.05 m to be reliable |
+| Blind, 0.03 m | ~3 of 4 steps on average; ~2 of 10 attempts clear all four |
+| Blind, 0.05 m | Collapsed into stalling before the steps |
+| Height-scan (18 points, `GO2_STAIRS_VISION=1`), 0.03 m | Solved: 0% falls, clears all four steps |
+| Height-scan, 0.05 m | Reaches the top in 18 of 30 episodes (60%); needs `GO2_NO_STAND_SUBSIDY=1` plus a larger stall penalty, otherwise it parks in front of the first step |
+| Height-scan, 0.10 m+ | Not started |
 
-Height-scan climber on 0.05 m steps (best of 25 attempts; 6 of 25 stayed up for the full 20 s):
+Weights: `training/pretrained/go2_climb_scan/`. The 5 cm clip is at the top of this README.
 
-![Go2 climbing four 5 cm steps with the height scan](docs/images/go2_stairs_climb_h05.gif)
+**Gazebo:** the blind 3 cm climber gets onto the flight (`training/envs/make_outdoor_steps_world.py`) but steps off the side; it does not cross the whole flight. Partial result.
 
-The blind policy plateaus around 3 cm; the height-scan policy clears 3 cm reliably. Higher stages only count once an evaluation reaches the top with 0% falls.
+![Go2 on 3 cm steps in Gazebo](docs/images/go2_gazebo_climb_h03.gif)
 
 ### Rough terrain + vision: blind vs. sighted
 
@@ -337,23 +348,36 @@ python3 training/headless_control.py
 
 ## SLAM & Autonomy
 
-**2D SLAM (SLAM Toolbox):**
+| 2D SLAM Toolbox: map + LiDAR scan | 3D LiDAR point cloud (RTAB-Map setup) |
+|---|---|
+| ![SLAM Toolbox map + LiDAR scan of a room in RViz](docs/images/go2_slam_2d_room.png) | ![Go2 3D LiDAR point cloud in RViz](docs/images/go2_slam3d_pointcloud.png) |
+
+### 2D SLAM (SLAM Toolbox)
+
 ```bash
 python3 scripts/gz_pose_to_odom.py     # bridges Gazebo pose -> /odom + TF
 ros2 launch launch/slam_go2.launch.py  # subscribes /scan, publishes /map
 ```
 
-![SLAM Toolbox map + LiDAR scan of a room in RViz](docs/images/go2_slam_2d_room.png)
+### 3D LiDAR SLAM + mapping (RTAB-Map)
 
-**3D LiDAR SLAM + frontier exploration (RTAB-Map):**
 ```bash
 ros2 launch launch/slam3d_go2.launch.py headless:=true explore:=true
 ```
-`scripts/frontier_explorer_go2.py` grows a real occupancy grid and walks the robot toward frontier cells. `track_obstacles:=true` adds Kalman-tracked obstacle clustering. `locomotion:=nmpc` swaps CHAMP for the Quad-SDK backend (same lidar/RTAB-Map setup, also verified end-to-end). RTAB-Map's frame is `base_footprint` (fixed below `base`, at ground level) rather than `base` itself, so the map/grid doesn't render floating above the feet; an RGB camera bridges into RViz as a picture-in-picture inset alongside the point cloud.
 
-![Go2 3D LiDAR point cloud in RViz](docs/images/go2_slam3d_pointcloud.png)
+![Go2 3D LiDAR SLAM with RTAB-Map in RViz: point cloud, map graph, 2D map and robot camera](docs/images/go2_slam3d_rtabmap.gif)
 
-**Nav2** against the CHAMP map/config: `ros2 launch launch/nav2_go2.launch.py`.
+| Option | Effect |
+|---|---|
+| `explore:=true` | `scripts/frontier_explorer_go2.py` grows a real occupancy grid and walks the robot toward frontier cells |
+| `track_obstacles:=true` | adds Kalman-tracked obstacle clustering |
+| `locomotion:=nmpc` | swaps CHAMP for the Quad-SDK backend (same lidar/RTAB-Map setup, also verified end-to-end) |
+
+RTAB-Map's frame is `base_footprint` (fixed below `base`, at ground level) rather than `base` itself, so the map/grid doesn't render floating above the feet. An RGB camera bridges into RViz as a picture-in-picture inset alongside the point cloud. The full indoor demo is `ros2 launch launch/indoor_autonomy_go2.launch.py`; checklist in [docs/DEMOS.md](docs/DEMOS.md), troubleshooting in [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+
+### Nav2
+
+Against the CHAMP map/config: `ros2 launch launch/nav2_go2.launch.py`.
 
 ---
 

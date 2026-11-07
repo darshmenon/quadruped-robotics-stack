@@ -39,6 +39,7 @@ import train_curriculum as tc  # noqa: E402,F401  (registers AsymmetricActorCrit
 from stable_baselines3 import PPO  # noqa: E402
 
 CTRL_DT = 0.02
+LIFT_SCALE = float(os.environ.get("GO2_LIFT_SCALE", "1.0"))  # stairs climbers were trained with the prior's calf lift scaled up
 HIST = 5
 # qpos / /joint_states order (leg by leg) and the policy's action order (hips, thighs, calves).
 JOINTS = [f"{leg}_{j}_joint" for leg in ("FL", "FR", "RL", "RR") for j in ("hip", "thigh", "calf")]
@@ -160,7 +161,7 @@ class RLCmdVel(Node):
         target = ACT_DEFAULT + a * ACT_SCALE
         if self.trot_prior:
             target[4:8] += TROT_THIGH_SWING * (swing - 0.5 * float(swing.max()))
-            target[8:12] += -TROT_CALF_LIFT * swing
+            target[8:12] += -LIFT_SCALE * TROT_CALF_LIFT * swing
         self.prev_action = self.last_a = a.astype(np.float32)
         self._publish(target)
 

@@ -105,6 +105,7 @@ def main():
     ap.add_argument("--fps", type=float, default=8.0)
     ap.add_argument("--max-mb", type=float, default=3.0)
     ap.add_argument("--world", default=str(REPO / "training/envs/go2_gz_world_open.sdf"))
+    ap.add_argument("--policy-args", default="", help="extra arguments for rl_cmd_vel_go2_gz.py, e.g. '--scan-steps 0.8 0.05 0.3 4 6 --vecnorm ...'")
     ap.add_argument("--gui", action="store_true", help="open the Gazebo window (follows the robot) and screen-record that window only")
     ap.add_argument("--gui-fps", type=int, default=15)
     ap.add_argument("--gui-offset", type=float, nargs=3, default=[-1.6, -1.6, 1.0], help="GUI follow-camera offset from the robot (m)")
@@ -148,7 +149,7 @@ def main():
         time.sleep(args.stand_wait)
         plog = REPO / "training/logs/run_logs/record_gz_policy.log"
         procs.append(spawn(f"python3 -u {REPO}/scripts/rl_cmd_vel_go2_gz.py --gyro-scale 1.0 --yaw-fb {args.yaw_fb} "
-                           f"--model {args.model}", open(plog, "w")))
+                           f"--model {args.model} {args.policy_args}", open(plog, "w")))
         t_ready = time.time()
         while "rl_cmd_vel ready" not in plog.read_text() and time.time() - t_ready < 300:
             time.sleep(1.0)  # the policy node's torch/tensorflow import can take minutes on a loaded machine
@@ -235,7 +236,8 @@ def main():
         dist = math.hypot(end[0] - start[0], end[1] - start[1])
         dyaw = math.degrees(math.atan2(math.sin(end[3] - start[3]), math.cos(end[3] - start[3])))
         print(f"walked {dist:.2f} m in {dt:.1f} sim s ({dist / max(dt, 1e-6):.2f} m/s), heading change {dyaw:+.0f} deg, "
-              f"min z {min(q[3] for q in st['path']):.2f}, {st['n']} frames", flush=True)
+              f"min z {min(q[3] for q in st['path']):.2f}, max z {max(q[3] for q in st['path']):.2f}, "
+              f"end x={st['path'][-1][1]:.2f} y={st['path'][-1][2]:.2f}, {st['n']} frames", flush=True)
         ex.shutdown()
         rclpy.shutdown()
     finally:

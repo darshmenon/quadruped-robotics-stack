@@ -48,7 +48,8 @@ ACT_DEFAULT = np.array([DEFAULT_QPOS[JOINTS.index(n)] for n in ACT_ORDER], dtype
 
 
 class RLCmdVel(Node):
-    def __init__(self, model_path, trot_prior, stand_thresh, debug=False, sim_time=True, gyro_scale=1.0, yaw_fb=0.0):
+    def __init__(self, model_path, trot_prior, stand_thresh, debug=False, sim_time=True, gyro_scale=1.0, yaw_fb=0.0,
+                 scan_steps=None, vecnorm=None):
         # Tick on /clock: Gazebo runs below real time in heavy worlds (~0.7x measured), and a wall-clock
         # 50 Hz loop then feeds the policy stale sensor frames and runs its gait clock too fast.
         super().__init__("rl_cmd_vel_go2_gz",
@@ -56,7 +57,7 @@ class RLCmdVel(Node):
         self.debug, self.n_js, self.n_imu, self.n_tick, self.last_a = debug, 0, 0, 0, np.zeros(12, np.float32)
         self.trot_prior, self.stand_thresh, self.gyro_scale, self.yaw_fb = trot_prior, stand_thresh, gyro_scale, yaw_fb
         d = os.path.dirname(os.path.abspath(model_path))
-        vn = next(p for p in (os.path.join(d, "vecnorm_final.pkl"),
+        vn = vecnorm or next(p for p in (os.path.join(d, "vecnorm_final.pkl"),
                               os.path.join(d, "..", "vecnorm_final.pkl")) if os.path.exists(p))
         with open(vn, "rb") as f:
             rms = pickle.load(f).obs_rms["policy"]
@@ -73,12 +74,18 @@ class RLCmdVel(Node):
         self.q, self.qd = DEFAULT_QPOS[:12].copy(), np.zeros(12, np.float32)
         self.ang_vel, self.quat = np.zeros(3, np.float32), np.array([1.0, 0, 0, 0], np.float32)
         self.hist = deque(maxlen=HIST)
+        # Height-scan climbers (GO2_STAIRS_VISION=1) see 18 terrain heights around the base. Gazebo has no depth
+        # sensor here, so they are computed from the known flight of steps and the base pose on /odom.
+        self.scan_steps, self.base_pos = scan_steps, np.zeros(3, np.float32)
         self.have_js = self.have_imu = False
 
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.create_subscription(JointState, "/joint_states", self._js, qos)
         self.create_subscription(Imu, "/imu/data", self._imu, qos)
         self.create_subscription(Twist, "/cmd_vel", self._cmd, 10)
+        if scan_steps:
+            from nav_msgs.msg import Odometry
+            self.create_subscription(Odometry, "/odom", self._odom, 10)
         self.pubs = {n: self.create_publisher(Float64, f"/go2/cmd/{n}", 10) for n in JOINTS}
         self.create_timer(CTRL_DT, self._tick)
         print("rl_cmd_vel ready", flush=True)
@@ -97,6 +104,22 @@ class RLCmdVel(Node):
         self.ang_vel = np.array([a.x, a.y, a.z], np.float32) * np.array([self.gyro_scale, self.gyro_scale, 1.0], np.float32)
         self.have_imu = True
         self.n_imu += 1
+
+    def _odom(self, m):
+        p = m.pose.pose.position
+        self.base_pos = np.array([p.x, p.y, p.z], np.float32)
+
+    def _terrain_z(self, x, y):
+        x0, h, tread, n, width = self.scan_steps
+        if abs(y) > width / 2 or x < x0:
+            return 0.0
+        return h * min(n, int((x - x0) // tread) + 1)
+
+    def _scan(self):
+        """Same grid as SCAN_GRID in go2_mujoco_vision_env: world-axis offsets from the base, height relative to the base."""
+        bx, by, bz = self.base_pos
+        return np.array([self._terrain_z(bx + dx, by + dy) - bz
+                         for dx in (-0.3, -0.15, 0.0, 0.15, 0.3, 0.45) for dy in (-0.2, 0.0, 0.2)], np.float32)
 
     def _cmd(self, m):
         self.cmd[:] = [m.linear.x, m.linear.y, m.angular.z]
@@ -124,8 +147,9 @@ class RLCmdVel(Node):
         cmd = self.cmd.copy()
         if self.yaw_fb:  # P feedback on yaw rate: the policy's left bias / weak turn authority is corrected here
             cmd[2] = np.clip(cmd[2] + self.yaw_fb * (cmd[2] - self.ang_vel[2]), -0.6, 0.6)
-        return np.concatenate([self.ang_vel * 0.25, gravity, cmd * np.array([2.0, 2.0, 0.25], np.float32),
-                               self.q - DEFAULT_QPOS[:12], self.qd * 0.05, self.prev_action, feat, clocks])
+        o = np.concatenate([self.ang_vel * 0.25, gravity, cmd * np.array([2.0, 2.0, 0.25], np.float32),
+                            self.q - DEFAULT_QPOS[:12], self.qd * 0.05, self.prev_action, feat, clocks])
+        return np.concatenate([o, self._scan()]) if self.scan_steps else o
 
     def _publish(self, target_act_order):
         for n, v in zip(ACT_ORDER, target_act_order):
@@ -174,12 +198,16 @@ def main():
     ap.add_argument("--gyro-scale", type=float, default=1.0,
                     help="scale the IMU roll/pitch rates (not yaw) before they enter the obs: Gazebo wobbles ~2-2.4x MuJoCo in roll/pitch while yaw matches")
     ap.add_argument("--yaw-fb", type=float, default=0.0, help="gain of the yaw-rate feedback added to the commanded wz (0 = off)")
+    ap.add_argument("--scan-steps", type=float, nargs=5, metavar=("X0", "H", "TREAD", "N", "WIDTH"), default=None,
+                    help="feed the 18-point height scan of a flight of N steps (riser H, tread TREAD, starting at x=X0, WIDTH wide) for GO2_STAIRS_VISION climbers")
+    ap.add_argument("--vecnorm", default=None, help="VecNormalize pickle (default: vecnorm_final.pkl next to the model)")
     ap.add_argument("--wall-time", action="store_true", help="tick on wall-clock instead of /clock")
     ap.add_argument("--debug", action="store_true", help="print obs/rate diagnostics once per second")
     args, ros_args = ap.parse_known_args()
     rclpy.init(args=ros_args)
     prior = os.environ.get("GO2_TROT_PRIOR", "0") == "1" and not args.no_trot_prior
-    rclpy.spin(RLCmdVel(args.model, prior, args.stand_thresh, args.debug, not args.wall_time, args.gyro_scale, args.yaw_fb))
+    rclpy.spin(RLCmdVel(args.model, prior, args.stand_thresh, args.debug, not args.wall_time, args.gyro_scale, args.yaw_fb,
+                         args.scan_steps, args.vecnorm))
 
 
 if __name__ == "__main__":

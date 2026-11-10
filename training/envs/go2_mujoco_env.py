@@ -8,7 +8,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import mujoco
 
-SCENE_XML = os.path.join(os.path.dirname(__file__), "go2_scene.xml")
+SCENE_XML = os.environ.get("GO2_SCENE_XML") or os.path.join(os.path.dirname(__file__), "go2_scene.xml")
 
 # intelligence/ lives at the repo root, two levels up from training/envs/ --
 # not on sys.path by default when this module is imported via training/'s

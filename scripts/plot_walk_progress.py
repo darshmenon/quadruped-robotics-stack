@@ -33,6 +33,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--progress", default=os.path.join(ROOT, "docs/data/walk_progress_sweep.csv"))
     ap.add_argument("--tracking", default=os.path.join(ROOT, "docs/data/walk_tracking.csv"))
+    ap.add_argument("--tracking-lat2", default=os.path.join(ROOT, "docs/data/walk_tracking_lat2.csv"),
+                    help="optional second tracking sweep (latest walker) overlaid on the right panel")
     ap.add_argument("--out", default=os.path.join(ROOT, "docs/images/walk_progress.png"))
     args = ap.parse_args()
 
@@ -54,14 +56,19 @@ def main():
     a.legend(loc="upper left")
 
     cmd = [t[0] for t in track]
-    b.plot(cmd, [t[1] for t in track], "o-", color="#d9622b", lw=2, label="achieved")
+    b.plot(cmd, [t[1] for t in track], "o-", color="#d9622b", lw=2, label="baseline walker")
     lim = max(cmd + [t[1] for t in track]) * 1.1
+    falls = max(t[2] for t in track)
+    if os.path.exists(args.tracking_lat2):
+        t2 = sorted((float(r["cmd"]), float(r["vx"]), float(r["fall_pct"])) for r in read(args.tracking_lat2))
+        b.plot([t[0] for t in t2], [t[1] for t in t2], "s-", color="#3a9d5d", lw=2, label="latest walker (lat2)")
+        lim = max(lim, max(t[0] for t in t2) * 1.1, max(t[1] for t in t2) * 1.1)
+        falls = max(falls, max(t[2] for t in t2))
     b.plot([0, lim], [0, lim], "--", color="gray", lw=1, label="perfect tracking")
-    b.set(xlabel="commanded vx (m/s)", ylabel="achieved vx (m/s)", title="Speed-command tracking (best checkpoint)",
+    b.set(xlabel="commanded vx (m/s)", ylabel="achieved vx (m/s)", title="Speed-command tracking",
           xlim=(0, lim), ylim=(0, lim))
     b.grid(alpha=0.3)
     b.legend(loc="upper left")
-    falls = max(t[2] for t in track)
     b.text(0.97, 0.05, f"worst-case fall rate: {falls:.0f}%", transform=b.transAxes, ha="right", fontsize=9)
 
     fig.suptitle("Go2 PPO + trot prior, flat ground, 20 s episodes, clean env", fontsize=11)

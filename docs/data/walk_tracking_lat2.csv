@@ -1,0 +1,6 @@
+model,scene,cmd,wz,fall_pct,steps,dist_m,vx,wz_act,layout
+training/pretrained/go2_walk_lat2/go2_flat_walk.zip,flat,0.1,0.0,0.0,1000.0,0.6260139459509219,0.031300697297546094,0.02365272469019292,"(True, 5, True, True)"
+training/pretrained/go2_walk_lat2/go2_flat_walk.zip,flat,0.2,0.0,0.0,1000.0,5.028030625928296,0.2514015312964148,0.040028936465407686,"(True, 5, True, True)"
+training/pretrained/go2_walk_lat2/go2_flat_walk.zip,flat,0.3,0.0,0.0,1000.0,8.132890084654383,0.40664450423271914,-0.0445184622963376,"(True, 5, True, True)"
+training/pretrained/go2_walk_lat2/go2_flat_walk.zip,flat,0.4,0.0,0.0,1000.0,9.918971923006808,0.49594859615034037,-0.06967341046699303,"(True, 5, True, True)"
+training/pretrained/go2_walk_lat2/go2_flat_walk.zip,flat,0.5,0.0,0.0,1000.0,11.756644731975195,0.5878322365987597,-0.05385480020012116,"(True, 5, True, True)"

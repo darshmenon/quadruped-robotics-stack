@@ -9,28 +9,30 @@
 
 A ROS2 + Gazebo + MuJoCo workspace for simulating and walking quadruped robots, with three interchangeable locomotion backends (RL, CHAMP, Quad-SDK NMPC) and an RL training pipeline on top. One PPO policy trained in MuJoCo also runs in Gazebo; Gazebo vs Quad-SDK NMPC numbers are in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
-**What's working:**
-- **RL locomotion** — PPO trained end-to-end in MuJoCo (no hand-written gait/IK). Also: blind-vs-sighted rough-terrain comparison, fall recovery, asymmetric critic + staged curriculum, HL navigation. See [RL Policy Training](#rl-policy-training).
-- **Quad-SDK NMPC** — a real Unitree Go2 config stands up, plans a path, solves NMPC in real time (~20-30ms/solve), and walks to a goal at ~0.7 m/s. See [Quad-SDK (NMPC locomotion)](#quad-sdk-nmpc-locomotion--go2-walks).
-- **CHAMP** — kinematic gait engine, quick dependency-light walking (generic reference robot; not wired to Go2's physics, see note below).
-- **SLAM & mapping** — 2D SLAM Toolbox and 3D LiDAR SLAM with RTAB-Map plus frontier exploration, on both CHAMP and NMPC locomotion. See [SLAM & Autonomy](#slam--autonomy).
-- **Stairs & ledges, indoor autonomy, arena/warehouse/moving-obstacle worlds** — one-command Gazebo demos.
-- **Go2 model weights** — local SB3 `.zip` checkpoints (resumable) + downloadable Isaac/rsl_rl/Genesis `.pt` files. See [docs/PRETRAINED.md](docs/PRETRAINED.md).
-- 14 research PDFs under [docs/papers/](docs/papers/README.md).
+**What works**
+- **RL locomotion:** PPO trained end to end in MuJoCo, no hand-written gait or IK. Also rough-terrain vision, fall recovery, asymmetric critic with a staged curriculum, and HL navigation. See [RL Policy Training](#rl-policy-training).
+- **Quad-SDK NMPC:** a real Go2 config plans a path, solves NMPC in ~20-30 ms and walks to a goal at ~0.7 m/s. See [Quad-SDK](#quad-sdk-nmpc-locomotion--go2-walks).
+- **CHAMP:** kinematic gait engine for quick, dependency-light walking (generic reference robot, not wired to Go2's physics).
+- **SLAM & mapping:** 2D SLAM Toolbox and 3D LiDAR RTAB-Map with frontier exploration, on CHAMP and NMPC. See [SLAM & Autonomy](#slam--autonomy).
+- **Worlds:** stairs and ledges, indoor autonomy, arena, warehouse and moving obstacles, each one launch command.
+- **Weights:** local SB3 `.zip` checkpoints plus downloadable Isaac/rsl_rl/Genesis `.pt` files ([docs/PRETRAINED.md](docs/PRETRAINED.md)).
+- **Papers:** 14 PDFs in [docs/papers/](docs/papers/README.md).
 
-**Go2 is the only fully working robot** (real URDF/meshes, both locomotion backends). The other `urdf/*_config/` folders are CHAMP config stubs carried over from upstream examples — they reference external ROS1 `*_description` packages that aren't vendored here, so they don't spawn as-is.
+**Go2 is the only fully working robot** (real URDF and meshes, both backends). The other `urdf/*_config/` folders are CHAMP stubs from upstream examples that reference unvendored ROS1 `*_description` packages, so they don't spawn as-is.
 
 **Walking (RL, `go2_walk_lat2`)**
 
-| Gazebo | MuJoCo |
+| Walking | Rotating in place |
 |---|---|
-| ![Go2 walking in Gazebo](docs/images/go2_gazebo_open_v3.gif) | ![Go2 walking in MuJoCo](docs/images/go2_mujoco_window_walk.gif) |
+| ![Go2 walking in MuJoCo](docs/images/go2_mujoco_plain_walk.gif) | ![Go2 rotating in place in MuJoCo](docs/images/go2_mujoco_plain_spin.gif) |
 
-**Climbing four 5 cm steps (RL + height scan, MuJoCo)**
+**Climbing (RL + height scan, MuJoCo)**
 
-![Go2 climbing four 5 cm steps in MuJoCo](docs/images/go2_mujoco_window_climb_h05.gif)
+| Four 5 cm steps | Four 3 cm steps |
+|---|---|
+| ![Go2 climbing four 5 cm steps in MuJoCo](docs/images/go2_mujoco_window_climb_h05.gif) | ![Go2 climbing four 3 cm steps in MuJoCo](docs/images/go2_mujoco_climb_h03.gif) |
 
-The climbing clip is the best of 3 live attempts; the policy reaches the top in about 60% of episodes. Details: [Walking](#walking-policies) and [Step climbing](#step-climbing-in-progress).
+The 5 cm clip is the best of 3 live attempts; that policy reaches the top in about 60% of episodes. The 3 cm climber had 0% falls over 6 episodes (`python3 training/office_demo.py --steps --cam side --record out.mp4`). Details: [Walking](#walking-policies), [Step climbing](#step-climbing-in-progress).
 
 ---
 
@@ -191,6 +193,8 @@ A residual policy on top of a gait-clock trot (`GO2_TROT_PRIOR=1`), trained on f
 
 ![Walking speed vs training steps, and speed-command tracking](docs/images/walk_progress.png)
 
+Right panel also shows the latest walker (`go2_walk_lat2`): it over-tracks above 0.3 m/s and barely moves at 0.1 m/s, 0% falls on flat ground for both (`docs/data/walk_tracking_lat2.csv`).
+
 Fixed-difficulty evaluation (clean env, 20 s episodes, 0% falls at every command tried):
 
 | Command vx (m/s) | 0.1 | 0.2 | 0.3 | 0.4 | 0.5 |
@@ -252,8 +256,6 @@ Weights: `training/pretrained/go2_climb_scan/`. The 5 cm clip is at the top of t
 For Gazebo, which has no depth sensor here, `scripts/rl_cmd_vel_go2_gz.py --scan-steps X0 H TREAD N WIDTH` computes the same 18-point height scan from the known flight of steps and the robot pose on `/odom`.
 
 **Gazebo:** the blind 3 cm climber gets onto the flight (`training/envs/make_outdoor_steps_world.py`) but steps off the side; it does not cross the whole flight. Partial result.
-
-![Go2 on 3 cm steps in Gazebo](docs/images/go2_gazebo_climb_h03.gif)
 
 ### Rough terrain + vision: blind vs. sighted
 

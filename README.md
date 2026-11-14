@@ -32,7 +32,7 @@ A ROS2 + Gazebo + MuJoCo workspace for simulating and walking quadruped robots, 
 |---|---|
 | ![Go2 climbing four 5 cm steps in MuJoCo](docs/images/go2_mujoco_window_climb_h05.gif) | ![Go2 climbing four 3 cm steps in MuJoCo](docs/images/go2_mujoco_climb_h03.gif) |
 
-The 5 cm clip is the best of 3 live attempts; that policy reaches the top in about 60% of episodes. The 3 cm climber had 0% falls over 6 episodes (`python3 training/office_demo.py --steps --cam side --record out.mp4`). Details: [Walking](#walking-policies), [Step climbing](#step-climbing-in-progress).
+The 5 cm clip is the best of 3 live attempts and that policy is unreliable (a later re-evaluation fell every time). The 3 cm climber had 0% falls over 6 episodes (`python3 training/office_demo.py --steps --cam side --record out.mp4`). Details: [Walking](#walking-policies), [Step climbing](#step-climbing-in-progress).
 
 ---
 

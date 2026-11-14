@@ -13,7 +13,9 @@ _scene = "plain" if "--plain" in sys.argv or "--steps" in sys.argv else "office"
 os.environ["GO2_SCENE_XML"] = os.path.join(HERE, "envs", f"go2_{_scene}_scene.xml")
 if "--steps" in sys.argv:   # 3 cm height-scan climber on the Unitree-mesh steps (needs these set before the env import)
     os.environ.update(GO2_STAIRS_VISION="1", GO2_NO_STAND_SUBSIDY="1", GO2_LIFT_SCALE="2.0",
-                      GO2_STAIRS_SCENE=os.path.join(HERE, "envs", "go2_steps_h03_unitree.xml"))
+                      GO2_STAIRS_SCENE=os.path.join(HERE, "envs", f"go2_steps_h0{sys.argv[sys.argv.index('--h') + 1] if '--h' in sys.argv else 3}_unitree.xml"))
+    if "--h" in sys.argv:   # MoE climbers trained with these settings (4 cm / 5 cm)
+        os.environ.update(GO2_MOE="3", GO2_STD_FLOOR="0.45", GO2_STABILITY_W="0.02", GO2_FOOTHOLD_W="0.5", GO2_STALL_PENALTY="120")
 sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, "envs"))
 import numpy as np, mujoco, mujoco.viewer
 from stable_baselines3 import PPO
@@ -65,6 +67,7 @@ def main():
     ap.add_argument("--cam", choices=("iso", "side", "follow"), default="iso", help="camera: iso (default), side (profile) or follow (behind)")
     ap.add_argument("--walk", action="store_true", help="only walk forward (no turns)")
     ap.add_argument("--steps", action="store_true", help="climb the four 3 cm steps (go2_climb_scan, height scan)")
+    ap.add_argument("--h", type=int, default=3, help="step height in cm for --steps (scene go2_steps_h0N_unitree.xml)")
     ap.add_argument("--vx", type=float, default=0.35)
     ap.add_argument("--wz", type=float, default=0.5)
     ap.add_argument("--loops", type=int, default=1)

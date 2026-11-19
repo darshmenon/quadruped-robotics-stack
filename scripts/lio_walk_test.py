@@ -29,6 +29,11 @@ def main():
     ap.add_argument("--model", default=str(REPO / "training/pretrained/go2_walk_lat2/go2_flat_walk.zip"))
     ap.add_argument("--csv", default=str(REPO / "docs/data/lio_walk.csv"))
     ap.add_argument("--label", default="rko_lio")
+    ap.add_argument("--weave", action="store_true", help="sinusoidal yaw command (turns) instead of holding heading; ends after --duration sim s")
+    ap.add_argument("--weave-wz", type=float, default=0.2, help="--weave only: peak yaw rate (rad/s); 0.45 made the walker spin in place")
+    ap.add_argument("--duration", type=float, default=60.0, help="--weave only: sim seconds to walk")
+    ap.add_argument("--bag", default=None, help="also record /points /imu/data /odom /rko_lio/odom /clock to this bag dir "
+                    "(then: ~/fusion_tools/odom_to_tum.py + eval_traj.sh for evo APE/RPE)")
     ap.add_argument("--boot-wait", type=float, default=180.0)
     ap.add_argument("--stand-wait", type=float, default=30.0)
     a = ap.parse_args()
@@ -81,6 +86,9 @@ def main():
         t1 = time.time()
         while "rl_cmd_vel ready" not in plog.read_text() and time.time() - t1 < 300: time.sleep(1.0)
         spawn("ros2 launch " + str(REPO / "launch/lio_go2.launch.py"), f"lio_walk_lio_{d}.log")
+        if a.bag:
+            if os.path.exists(a.bag): raise SystemExit(f"{a.bag} exists; pick a new --bag dir")
+            spawn(f"ros2 bag record -o {a.bag} /points /imu/data /odom /rko_lio/odom /clock /joint_states", f"lio_walk_bag_{d}.log")
         time.sleep(8.0)        # let the odometry initialise while standing
         i_gt, i_est = len(gt), len(est)
         x0, y0, yaw0, tstart = gt[-1][1], gt[-1][2], gt[-1][3], gt[-1][0]
@@ -88,9 +96,16 @@ def main():
         wall = time.time()
         while True:
             x, y, yaw, t = gt[-1][1], gt[-1][2], gt[-1][3], gt[-1][0]
-            m = Twist(); m.linear.x = a.vx if x - x0 < a.goal else 0.0
-            m.angular.z = max(-0.6, min(0.6, 4.0 * wrap(yaw0 - yaw))); cmd.publish(m)
-            if x - x0 >= a.goal - 0.1 or t - tstart > a.timeout or time.time() - wall > a.timeout * 15: break
+            m = Twist()
+            if a.weave:      # S-curves: yaw rate +-weave_wz with a 30 s period
+                m.linear.x = a.vx; m.angular.z = a.weave_wz * math.sin(2 * math.pi * (t - tstart) / 30.0)
+                done = t - tstart > a.duration
+            else:
+                m.linear.x = a.vx if x - x0 < a.goal else 0.0
+                m.angular.z = max(-0.6, min(0.6, 4.0 * wrap(yaw0 - yaw)))
+                done = x - x0 >= a.goal - 0.1
+            cmd.publish(m)
+            if done or t - tstart > a.timeout or time.time() - wall > a.timeout * 15: break
             time.sleep(0.05)
         time.sleep(1.0)
         g = gt[i_gt:]; e = est[i_est:]
@@ -101,7 +116,7 @@ def main():
         resets = len(cuts) - 2
         est_dist = sum(math.hypot(e[b - 1][1] - e[a_][1], e[b - 1][2] - e[a_][2]) for a_, b in zip(cuts, cuts[1:]) if b - a_ > 1)
         dh_gt = math.degrees(wrap(g[-1][3] - g[0][3])); dh_est = math.degrees(wrap(e[-1][3] - e[0][3])) if e else float("nan")
-        row = dict(label=a.label, world=Path(a.world).name, goal=a.goal, true_dist=round(true_dist, 2), est_samples=len(e),
+        row = dict(label=a.label, world=Path(a.world).name + ("+weave" if a.weave else ""), goal=a.goal, true_dist=round(true_dist, 2), est_samples=len(e),
                    est_dist=round(est_dist, 2), dist_ratio=round(est_dist / true_dist, 3) if true_dist > 0.05 else None,
                    resets=resets, heading_gt_deg=round(dh_gt, 1), heading_est_deg=round(dh_est, 1),
                    sim_s=round(g[-1][0] - g[0][0], 1))

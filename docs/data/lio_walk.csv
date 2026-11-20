@@ -1,0 +1,6 @@
+label,world,goal,true_dist,est_samples,est_dist,dist_ratio,resets,heading_gt_deg,heading_est_deg,sim_s
+rko_lio,go2_gz_world_arena.sdf,5.0,6.11,607,6.12,1.001,0,7.6,6.7,91.0
+rko_lio,go2_gz_world_arena.sdf,5.0,6.54,552,6.49,0.993,0,15.2,12.9,90.9
+rko_lio_outdoor_weave,go2_gz_world_outdoor.sdf+weave,5.0,1.28,375,1.21,0.95,0,-155.1,-155.2,70.9
+rko_lio_outdoor_weave_gentle,go2_gz_world_outdoor.sdf+weave,5.0,19.4,506,19.4,1.0,0,-5.9,-12.5,71.0
+rko_lio_outdoor_weave_gentle_fixedstamp,go2_gz_world_outdoor.sdf+weave,5.0,1.7,488,1.81,1.062,0,-63.0,-69.4,70.9

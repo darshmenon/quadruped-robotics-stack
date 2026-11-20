@@ -1,0 +1,6 @@
+# Identity sensor extrinsics for RKO-LIO ([qx qy qz qw x y z] in the base frame): the default for the Go2 sim.
+# Repeated offline replays (3 per setting) showed no benefit from the real lidar offset (-0.05, 0, 0.15 m, see
+# lio_go2_extrinsics.yaml) and a much larger spread on straight walks, so identity is used. rko_lio needs extrinsics
+# given explicitly: without them it looks them up in TF, which a bag replay does not have.
+extrinsic_lidar2base_quat_xyzw_xyz: [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+extrinsic_imu2base_quat_xyzw_xyz: [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]

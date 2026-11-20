@@ -1,0 +1,5 @@
+# Go2 sim sensor extrinsics for RKO-LIO: [qx qy qz qw x y z] of each sensor in the base frame.
+# urdf/go2_unitree/urdf/go2_gz.urdf.xacro: lidar3d <pose>-0.05 0 0.15</pose> on `base` (its cloud is relabelled
+# frame "base" via gz_frame_id, so the offset is invisible to TF); the IMU sits at the base origin.
+extrinsic_lidar2base_quat_xyzw_xyz: [0.0, 0.0, 0.0, 1.0, -0.05, 0.0, 0.15]
+extrinsic_imu2base_quat_xyzw_xyz: [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]

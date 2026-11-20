@@ -10,6 +10,8 @@ another launch file silently drops them; it is therefore started as a subprocess
     ros2 launch launch/slam3d_go2.launch.py headless:=true rviz:=false explore:=true   # sim + lidar
     ros2 launch launch/lio_go2.launch.py                                               # this sidecar
 """
+import os
+from pathlib import Path
 from launch import LaunchDescription
 from launch.actions import ExecuteProcess
 
@@ -27,6 +29,13 @@ PARAMS = {
 }
 
 
+EXTRINSICS = Path(__file__).resolve().parents[1] / "config" / "lio_go2_identity.yaml"   # real offset: config/lio_go2_extrinsics.yaml
+
+
 def generate_launch_description():
-    cmd = ["ros2", "launch", "rko_lio", "odometry.launch.py"] + [f"{k}:={v}" for k, v in PARAMS.items()]
+    params = dict(PARAMS)
+    # LIO_EXTRINSICS_FILE overrides the extrinsics (the replay script uses it for the identity/real A/B). Without any
+    # extrinsics rko_lio looks them up in TF, which a bare bag replay does not have (it segfaults).
+    params["config_file"] = os.environ.get("LIO_EXTRINSICS_FILE") or str(EXTRINSICS)
+    cmd = ["ros2", "launch", "rko_lio", "odometry.launch.py"] + [f"{k}:={v}" for k, v in params.items()]
     return LaunchDescription([ExecuteProcess(cmd=cmd, output="screen")])

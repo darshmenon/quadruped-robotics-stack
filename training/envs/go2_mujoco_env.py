@@ -261,6 +261,13 @@ class Go2MujocoEnv(gym.Env):
         # GO2_RAND_LAT=1: per-episode actuation latency of 0-2 control steps (20 ms each) + joint-reading noise;
         # Gazebo runs below real time so the policy sees/acts on stale frames
         self.rand_lat = os.environ.get("GO2_RAND_LAT", "0") == "1"
+        # GO2_LAT_MAX (default 2): largest latency drawn; GO2_LAT_RESAMPLE=1 redraws it every episode instead of once per env
+        # (eval_robustness.py: walkers that train on 0-2 steps still slow down at 2 and fall off at 1 for the older ones).
+        self._lat_max = int(os.environ.get("GO2_LAT_MAX", "2"))
+        self._lat_resample = os.environ.get("GO2_LAT_RESAMPLE", "0") == "1"
+        # GO2_FRIC_RANGE / GO2_MASS_RANGE "lo,hi": floor friction and base mass scale ranges (defaults 0.7,1.3 and 0.85,1.15)
+        rng_env = lambda k, d: tuple(float(v) for v in os.environ.get(k, d).split(","))
+        self._fric_range, self._mass_range = rng_env("GO2_FRIC_RANGE", "0.7,1.3"), rng_env("GO2_MASS_RANGE", "0.85,1.15")
         self._lat, self._ctrl_hist = 0, []
         if self.rand_gains:
             self.model.opt.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
@@ -276,7 +283,7 @@ class Go2MujocoEnv(gym.Env):
         self._renderer = None
         self._prev_action = np.zeros(12 if self.legs_only else ACT_DIM, dtype=np.float32)
         if self.rand_lat:
-            self._lat = int(self.np_random.integers(0, 3))
+            self._lat = int(self.np_random.integers(0, self._lat_max + 1))
             self._ctrl_hist = []
         self._step_count = 0
         self._steps_since_push = 0
@@ -825,10 +832,12 @@ class Go2MujocoEnv(gym.Env):
         if self.rand_gyro:
             g = float(rng.uniform(1.0, float(os.environ.get("GO2_GYRO_MAX", "2.5"))))
             self._gyro_gain = np.array([g, g, 1.0], dtype=np.float32)
+        if self.rand_lat and self._lat_resample:
+            self._lat = int(rng.integers(0, self._lat_max + 1))
         self.model.body_mass[self._base_body_id] = (
-            self._base_mass * float(rng.uniform(0.85, 1.15)))
+            self._base_mass * float(rng.uniform(*self._mass_range)))
         self.model.geom_friction[self._floor_geom_id] = (
-            self._base_floor_friction * float(rng.uniform(0.7, 1.3)))
+            self._base_floor_friction * float(rng.uniform(*self._fric_range)))
         kp_scale = float(rng.uniform(0.85, 1.15))
         self.model.actuator_gainprm[:, 0] = self._base_gainprm * kp_scale
         self.model.actuator_biasprm[:, 1] = self._base_biasprm1 * kp_scale

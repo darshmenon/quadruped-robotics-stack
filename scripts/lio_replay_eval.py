@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replay a recorded Go2 bag through RKO-LIO (or LIO-SAM, --method lio_sam) offline and score it with evo (needs ~/fusion_tools and ~/.venvs/evo).
+"""Replay a recorded Go2 bag through RKO-LIO, LIO-SAM, or LIORF and score it with evo (needs ~/fusion_tools and ~/.venvs/evo).
 
 Same bag, same walker, only the LIO settings change, so before/after comparisons are fair (live runs vary a lot).
   python3 scripts/lio_replay_eval.py training/logs/bags/go2_outdoor_weave2 --extrinsics on   # real lidar offset
@@ -9,7 +9,16 @@ import argparse, os, random, shutil, signal, subprocess, sys, time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-EST_TOPIC = {"rko_lio": "/rko_lio/odom", "lio_sam": "/lio_sam/mapping/odometry"}
+EST_TOPIC = {
+    "rko_lio": "/rko_lio/odom",
+    "lio_sam": "/lio_sam/mapping/odometry",
+    "liorf": "/liorf/mapping/odometry",
+}
+LAUNCH = {
+    "rko_lio": f"ros2 launch {REPO}/launch/lio_go2.launch.py",
+    "lio_sam": f"bash -c 'source ~/lio_ws/install/setup.bash; exec ros2 launch {REPO}/launch/lio_sam_go2.launch.py'",
+    "liorf": f"bash -c 'source ~/ws_liorf/install_clean/setup.bash; exec ros2 launch {REPO}/launch/liorf_go2.launch.py'",
+}
 FUS = Path.home() / "fusion_tools"
 
 
@@ -27,7 +36,7 @@ def run_once(a, d, env, src, out):
         p = subprocess.Popen(["bash", "-c", src + "exec " + cmd], env=env, stdout=open(out / log, "w"), stderr=subprocess.STDOUT, preexec_fn=os.setsid)
         procs.append(p); return p
     try:
-        spawn(f"ros2 launch {REPO}/launch/lio_go2.launch.py" if a.method == "rko_lio" else f"bash -c 'source ~/lio_ws/install/setup.bash; exec ros2 launch {REPO}/launch/lio_sam_go2.launch.py'", "lio.log")
+        spawn(LAUNCH[a.method], "lio.log")
         spawn(f"ros2 bag record -o {out}/est {EST_TOPIC[a.method]} --use-sim-time", "rec.log")
         time.sleep(6)
         subprocess.run(["bash", "-c", src + f"ros2 bag play {a.bag} --clock --rate {a.rate} --topics /points /imu/data"],
@@ -46,13 +55,14 @@ def run_once(a, d, env, src, out):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("bag"); ap.add_argument("--extrinsics", choices=["on", "off"], default="off", help="off = identity (default), on = real lidar offset")
-    ap.add_argument("--method", choices=["rko_lio", "lio_sam"], default="rko_lio")
+    ap.add_argument("--method", choices=["rko_lio", "lio_sam", "liorf"], default="rko_lio")
     ap.add_argument("--rate", type=float, default=0.5); ap.add_argument("--out", default="/tmp/lio_replay")
     a = ap.parse_args()
     d = random.randint(60, 230)
     env = dict(os.environ, ROS_DOMAIN_ID=str(d))
     src = "source /opt/ros/humble/setup.bash >/dev/null 2>&1; "
-    tag = f"{Path(a.bag).name}_{a.method}_{a.extrinsics}" if a.method != "rko_lio" else f"{Path(a.bag).name}_{a.extrinsics}"; out = Path(a.out) / tag
+    tag = f"{Path(a.bag).name}_{a.extrinsics}" if a.method == "rko_lio" else f"{Path(a.bag).name}_{a.method}_{a.extrinsics}"
+    out = Path(a.out) / tag
     shutil.rmtree(out, ignore_errors=True); out.mkdir(parents=True)
     env["LIO_EXTRINSICS_FILE"] = str(REPO / "config" / ("lio_go2_extrinsics.yaml" if a.extrinsics == "on" else "lio_go2_identity.yaml"))
     for attempt in range(1, 4):      # retry when too few poses were recorded instead of scoring nothing

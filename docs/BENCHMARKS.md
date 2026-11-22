@@ -30,6 +30,8 @@ python3 scripts/lio_walk_test.py --weave --weave-wz 0.2 --vx 0.35 --duration 70 
 python3 scripts/lio_replay_eval.py training/logs/bags/go2_outdoor_weave2 [--extrinsics on]              # replay + score
 ```
 
+RKO-LIO's own offline drain (`mode:=offline`, same identity extrinsics, deskew off) was scored on 2026-11-20, three repeats per bag. The repeats are byte-identical and had 0 resets, so the weave spread below is the 0.5x replayer, not the estimator. Offline APE: straight 0.054 m (RPE 0.051 m), weave 0.182 m (RPE 0.215 m). That weave number is the reference for later methods. The bag-play table stays as the record of what `ros2 bag play` produced.
+
 Six replays per setting (two batches of three), mean (min to max), 0 odometry resets in all 24:
 
 | Bag | Extrinsics | APE RMSE (m) | RPE RMSE, 1 m (m) |
@@ -43,13 +45,31 @@ Notes:
 - The real lidar mount offset does not help: it is no better on average and its straight-walk spread is much larger (0.013 to 0.194 m), so identity extrinsics are the default (`config/lio_go2_identity.yaml`; the real offset is `config/lio_go2_extrinsics.yaml`). rko_lio needs extrinsics passed explicitly, otherwise it looks them up in TF, which a bag replay lacks.
 - Replay-to-replay spread is large on the weave (APE 0.20 to 0.46 m for identical settings), so differences of a few centimetres are not meaningful. Single replays earlier scored 0.070 m and 0.209 to 0.275 m on the same bag.
 - LIO-SAM (`--method lio_sam`, `launch/lio_sam_go2.launch.py`) is not usable on this 16-beam sim cloud: on the weave bag APE 4.05 m (RPE 0.82 m), on the straight walk it recorded only 48 to 91 poses per attempt (APE 169 m, a failure rather than a number). RKO-LIO is the odometry used.
-- Turning while walking costs about 4 to 5 times the straight-walk APE.
+- On the 0.5x replays, turning while walking costs about 4 to 5 times the straight-walk APE. The offline drain (above) cuts that to about 3.4 times (0.182 m vs 0.054 m).
 - One bag per walk type, one walker (`go2_walk_lat2`), 0.2 to 0.35 m/s. The walker itself is erratic (median 0.17 m/s while moving, roll up to 17 deg, the heading wanders), and an identical weave later covered only 1.7 m.
 - The estimated IMU lag against `/odom` is about +0.045 to +0.06 s (signed gyro-z correlation, 0.7). Its cause is not established: shifting the IMU stamps by +0.06 s made one replay clearly worse (APE 0.63 m), -0.06 s one replay 0.22 m, within the unshifted spread.
 - LIO-SAM (`launch/lio_sam_go2.launch.py`, `config/lio_sam_go2.yaml`, ring/time adapter) does not track on these bags: APE 139.7 m on the straight walk (it only produced 71 poses) and 7.4 m on the weave, one replay each, so it is experimental here. The sim IMU has no noise model, so its IMU noise values are guesses.
 - Leg odometry from `/joint_states` (`scripts/leg_odom_go2.py`) is a weak source in this sim: velocity error 0.66 m/s against a true speed of ~0.16 m/s, 1.7 m APE on the 19.4 m weave, and fusing it with RKO-LIO in an EKF gave no gain (APE within 1 mm of RKO-LIO alone). A single velocity scale fitted on one bag does not transfer: the best scale is about 1.0 on the straight walk (APE 0.71 m) and about 1.3 on the weave (0.96 m); the weave scale gives 1.04 m on the straight walk and the straight-walk scale gives 1.73 m on the weave. Even the best fit is far worse than RKO-LIO.
 - `online_node` always segfaults when it is shut down (after printing its timing stats); the estimate recorded before that is complete.
-- `deskew:=false` (the sim cloud has no per-point time), voxel 0.25 m, max range 30 m. `rko_lio`'s launch file reads only `param:=value` from the command line, so it is started as a subprocess.
+- `deskew:=false` (the sim cloud has no per-point time), voxel 0.25 m, max range 30 m. `rko_lio`'s launch file reads only `param:=value` from the command line, so it is started as a subprocess. Turning deskew on, after writing a per-point `time` with `scripts/lidar_ring_time_adapter.py`, made both bags worse on the offline drain (straight APE 0.076 m, weave 0.580 m). The scan is captured at one instant, so the invented sweep times warp it. Deskew stays off.
+
+## KISS-ICP and LIORF on the same two bags (2026-11-22)
+
+A new method only replaces RKO-LIO if it beats the offline reference: straight APE 0.054 m and weave 0.182 m, same bags, same evo SE3 APE.
+
+KISS-ICP is lidar only (no IMU, no extrinsics). `scripts/kiss_icp_eval.py` reads `/points` out of the bag, so there is no `ros2 bag play` spread. Config is `config/kiss_icp_go2.yaml`: deskew off, max range 30 m, min range 0.4 m, voxel size left at the library default (max range / 100 = 0.3 m). Three repeats per bag, trajectories byte-identical.
+
+| Bag | Method | APE RMSE (m) | RPE RMSE, 1 m (m) | Poses |
+|---|---|---:|---:|---:|
+| Straight walk | KISS-ICP | 0.205 | 0.392 | 975 |
+| Weaving walk | KISS-ICP | 1.802 | 0.886 | 777 |
+| Offline RKO-LIO (reference) | straight / weave | 0.054 / 0.182 | 0.051 / 0.215 | 975 / 777 |
+
+KISS-ICP loses on both bags. On this 16-beam cloud the IMU is earning its keep.
+
+LIORF (LIO-SAM with feature extraction removed) was the follow-up, because KISS-ICP lost. One `ros2 bag play` at 0.5x per bag (`scripts/lio_replay_eval.py --method liorf`, `launch/liorf_go2.launch.py`, identity extrinsics, loop closure off, ring/time adapter on). It diverges: straight APE 445 m (220 poses), weave APE 368 m (372 poses). That is the same class of failure as stock LIO-SAM, not a result that sits inside the bag-play spread. RKO-LIO stays the odometry.
+
+FAST-LIO2 and Point-LIO were not scored. Both target a Mid-360 or a Unitree L1, and the ROS 2 FAST-LIO2 tree here requires `livox_ros_driver2`, which is not installed.
 
 ## NMPC vs RL walker in Gazebo
 

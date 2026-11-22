@@ -10,8 +10,14 @@ import math
 import numpy as np
 
 
+# m, extra room beyond clearance_standoff when matching excluded goals
+EXCLUDE_MARGIN = 0.1
+
+
 def world_to_cell(x, y, ox, oy, res):
-    return int((y - oy) / res), int((x - ox) / res)  # (row, col)
+    # floor, not int(): int() truncates toward zero, so a point up to one cell
+    # below the map origin would land in row/col 0 instead of -1 (out of bounds)
+    return math.floor((y - oy) / res), math.floor((x - ox) / res)  # (row, col)
 
 
 def cell_center_world(r, c, ox, oy, res):
@@ -182,8 +188,13 @@ def find_frontier_goal(grid, w, h, res, ox, oy, robot_x, robot_y, excluded_goals
         return None
     clusters = cluster_frontier_cells(frontier_cells)
     candidates = score_clusters(clusters, ox, oy, res, robot_x, robot_y, min_frontier_size)
+    # The excluded points are pulled-back goals, but candidates are still raw
+    # centroids, which sit up to clearance_standoff away from them. Keep the
+    # exclusion circle wider than that, or a stuck goal is picked again.
+    effective_exclude_radius = max(goal_exclude_radius,
+                                   clearance_standoff + EXCLUDE_MARGIN)
     best = select_best_candidate(
-        candidates, excluded_goals, goal_exclude_radius, tracks, obstacle_avoid_radius)
+        candidates, excluded_goals, effective_exclude_radius, tracks, obstacle_avoid_radius)
     if best is None:
         return None
     return pull_back_goal(grid, w, h, res, ox, oy, robot_x, robot_y, best,

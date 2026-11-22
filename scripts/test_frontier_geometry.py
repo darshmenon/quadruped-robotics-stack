@@ -203,6 +203,39 @@ check("raycast_blocked true when a moving obstacle sits on the ray",
                                                 "length": 0.1, "width": 0.1}],
                        obstacle_margin=0.15, occupied_min=65))
 
+# -- latent hazard: standoff wider than the exclusion radius ---------------
+# A stuck goal is stored pulled back by clearance_standoff, but candidates are
+# raw centroids. With standoff 0.8 m > exclude radius 0.3 m the same frontier
+# used to be picked again right after being excluded.
+
+wide = np.full((60, 60), -1, dtype=np.int16)
+wide[:, :40] = 0
+_kw = dict(free_max=40, occupied_min=65, min_frontier_size=1, obstacle_avoid_radius=0.5,
+           clearance_standoff=0.8, goal_exclude_radius=0.3)
+first = find_frontier_goal(wide, 60, 60, RES, OX, OY, -0.5, 2.0, [], [], **_kw)
+check("wide-standoff case finds a first goal", first is not None)
+again = find_frontier_goal(wide, 60, 60, RES, OX, OY, -0.5, 2.0, [first], [], **_kw)
+check("excluded goal is not re-picked when standoff exceeds the exclude radius", again is None)
+
+
+def test_excluded_goal_not_repicked_with_wide_standoff():
+    assert first is not None and again is None
+
+
+# -- world_to_cell must floor: points just below the origin are out of bounds
+check("world_to_cell floors a point half a cell below the origin to -1",
+      world_to_cell(OX - 0.5 * RES, OY - 0.5 * RES, OX, OY, RES) == (-1, -1))
+check("find_frontier_goal rejects a robot half a cell outside the map",
+      find_frontier_goal(grid, W, H, RES, OX, OY, OX - 0.5 * RES, OY - 0.5 * RES,
+                          [], [], free_max=40, occupied_min=65, min_frontier_size=1,
+                          clearance_standoff=0.15, goal_exclude_radius=0.5,
+                          obstacle_avoid_radius=0.5) is None)
+
+
+def test_world_to_cell_floors_negative_offsets():
+    assert world_to_cell(OX - 0.5 * RES, OY - 0.5 * RES, OX, OY, RES) == (-1, -1)
+
+
 print()
 if FAILURES:
     print(f"{len(FAILURES)} check(s) failed:")

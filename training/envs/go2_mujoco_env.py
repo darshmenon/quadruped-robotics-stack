@@ -195,8 +195,8 @@ REACH_SUCCESS_BONUS = 0.5
 
 # Mid-episode push DR (get-up-isaaclab / unitree_rl_gym _push_robots) — not
 # previously wired into the Go2 MuJoCo walk env (only mass/friction/Kp DR).
-PUSH_INTERVAL_S = 3.0
-PUSH_VEL_XY = 0.55          # m/s impulse magnitude cap
+PUSH_INTERVAL_S = float(os.environ.get("GO2_PUSH_INTERVAL", "3.0"))
+PUSH_VEL_XY = float(os.environ.get("GO2_PUSH_VEL", "0.55"))   # m/s per-axis impulse cap (eval_robustness.py pushes at 0.6 m/s every 2 s)
 COLLISION_WEIGHT = 0.2      # non-foot geom vs floor / self
 SOFT_LIMIT_WEIGHT = 2.0     # soft DoF-limit proximity (unitree_rl_gym style)
 # Clocked trot prior: when GO2_TROT_PRIOR=1 (and gait_conditioned) the joint targets are

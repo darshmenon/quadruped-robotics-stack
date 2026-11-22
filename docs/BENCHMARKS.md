@@ -84,6 +84,27 @@ scripts/benchmark_gazebo.sh --controller rl --trials 3 --goal 5.0 --rl-vx 0.3 --
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | 2026-11-04 | Quad-SDK NMPC | 3/3 | 0/3 | 7.58 | 0.63 | 0.02 | -0.2 | 1.01 |
 | 2026-11-05 | RL walker (`go2_walk_lat2`), vx 0.3, heading gain 1.5 | 3/3 | 0/3 | 15.4 | 0.35 | 0.83 | 17.6 | 1.25 |
+| 2026-11-22 | Quad-SDK NMPC, 10 trials, machine under heavy load (see note) | 6/10 | 0/10 | 7.55 | 0.63 | 0.01 | 1.11 | 1.03 |
+| 2026-11-22 | Quad-SDK NMPC, 10 trials, one per run, load 4.8-7.7 | 10/10 | 0/10 | 7.58 | 0.63 | 0.01 | n/a | 1.00 |
+
+2026-11-22 NMPC re-run, `scripts/benchmark_gazebo.sh --controller nmpc --trials 10 --goal 5.0` (rows appended to [data/gazebo_benchmark.csv](data/gazebo_benchmark.csv)): 10 trials, 6 reached, 0 falls. The 6 that reached walked at 0.626-0.636 m/s (7.47-7.59 s). Trials 3, 4, 5 and 7 stalled at the start (1.47, 0.12, 0.04, 0.01 m covered) without falling. The machine load average was 42-49 during trials 3-5 (other sessions' simulations) and about 12 by the end. Three of the stalled runs logged 3300-3900 NMPC solve-fail warnings each (domains 74, 97, 180); the fourth (domain 178) logged no solve samples at all. Cause not isolated: CPU starvation fits but was not tested. This does not replace the 2026-11-04 3/3 row. The lightly loaded rerun is the next paragraph.
+
+NMPC solve time, from the `LocalPlanner took X ms` lines in `training/logs/run_logs/bench_nmpc_plan_<domain>.log` (`ros2/quad_sdk/local_planner/src/local_planner.cpp`), first 5 samples per run dropped. Caveats: the log is throttled to 100 ms, so it is a sample, and the timer covers the whole planner cycle, not only the IPOPT solve (that is `RobotPlan.diagnostics.compute_time`, not logged here). Pooled over all 10 runs (n=478): median 36.5 ms, p95 109.6 ms. Over the 6 runs that reached the goal (n=455): median 35.7 ms, p95 106.4 ms. Per-run medians 21.5 to 46.9 ms, the lowest under the lightest load. The README now quotes this lightly loaded median (about 20 ms) and the p95 (about 67 ms), not a flat 20-30 ms.
+
+2026-11-22 idle-machine rerun: `scripts/benchmark_gazebo.sh --controller nmpc --trials 1 --goal 5.0` run ten times in a row, load average (1 min) checked before each run (4.8, 7.1, 7.7, 7.3, 6.6, 5.7, 5.7, 5.8, 6.0, 6.3; the limit was 8, so none was paused). Result: 10/10 reached, 0 falls, 7.56-7.62 s, 0.624-0.629 m/s. The machine was never fully idle (load 4.8-7.7 from other sessions), so this is a lightly loaded result. Solve time (`LocalPlanner took X ms`, same method and caveats as above, first 5 samples per run dropped) over 9 plan logs, n=662: median 19.7 ms, p95 67.4 ms, max 128 ms; per-run medians 17.1-24.1 ms. Two runs drew the same random domain (72), so one of them lost its plan log to the other; 9 logs, not 10. The p95 is dominated by start-up samples and a few slow cycles. The per-run median is in the README's 20-30 ms range; the p95 is not.
+
+### What `data/gazebo_benchmark.csv` contains (26 data rows)
+
+The CSV has no world, date or load column, so the groups below are by row order; the dates come from the sections above and the load figures come from `uptime` or `/proc/loadavg` readings taken during the runs (the 1-minute value before each run) and are not stored in the CSV. All simulation, Gazebo Harmonic, flat world `big_flat.sdf` for NMPC, goal 5 m.
+
+| CSV rows (data rows) | Controller | Trials | Reached | Falls | Load | Notes |
+|---|---|---:|---:|---:|---|---|
+| 1-3 | NMPC | 3 | 3 | 0 | not recorded | 2026-11-04, the original 3/3 (0.626-0.628 m/s) |
+| 4-6 | RL walker, first attempt | 3 | 0 | 2 | not recorded | heading gain 4.0, vx 0.35; the gentler 3/3 run is in `gazebo_benchmark_rl_gentle.csv`, not here |
+| 7-16 | NMPC | 10 | 6 | 0 | 42-49 during trials 3-5, about 12 at the end (see the 2026-11-22 note) | trials 3, 4, 5, 7 stalled at the start; cause not isolated |
+| 17-26 | NMPC | 10 (ten runs of `--trials 1`, so every row says `trial` 1) | 10 | 0 | 4.8-7.7 before each run | lightly loaded rerun, 0.624-0.629 m/s |
+
+Total: 23 NMPC rows and 3 RL rows. `sim_s` and `wall_s` are the last two columns.
 
 Per-trial rows: [data/gazebo_benchmark.csv](data/gazebo_benchmark.csv) (NMPC and the first RL attempt) and [data/gazebo_benchmark_rl_gentle.csv](data/gazebo_benchmark_rl_gentle.csv).
 
@@ -120,3 +141,15 @@ Metrics to report:
 | Quad-SDK NMPC | Working baseline | Spawns/loads cleanly (2026-08-27 world-wiring fix) but local planner fails to solve continuously in this world -- robot never walks. Needs solver-level debugging. | Working baseline | TBD | Goal-driven backend, verified end-to-end on flat/outdoor terrain per README; the room-world failure above is new information, not previously covered. |
 | MuJoCo RL | Working with stability issue | N/A | N/A | Needs longer sighted/blind run | Fastest training loop. |
 | Gazebo RL | Needs fresh training | TBD | TBD | TBD | Real ROS/Gazebo loop, slower but closer to deployment. |
+
+## Open issues (not fixed, not re-run for this note)
+
+Both are simulation-only findings in the vendored Quad-SDK (`ros2/quad_sdk`).
+
+1. **`global_body_planner_node` segfaults on `gap_80cm.sdf`** (exit code -11, reproduced on 2026-11-22 at load 4.35). It dies right after `valid and shorter or previous plan not valid`, shortly after the first plan is accepted in `GlobalBodyPlanner::callPlanner`. Repro, about 2 minutes, headless:
+   ```bash
+   scripts/benchmark_gazebo.sh --controller nmpc --trials 1 --goal 5.0 --nmpc-world gap_80cm.sdf --timeout 40
+   grep "exit code" training/logs/run_logs/bench_nmpc_plan_<domain>.log   # domain is printed by the script
+   ```
+   A gdb attempt (planner under `launch-prefix`, load 25) finished without a crash and gave no backtrace, so it did not locate the fault. Suspected cause (unverified, no sim run yet against a fix): `GBPL::postProcessPath` in `gbpl.cpp`, see [quadsdk_notes.md](quadsdk_notes.md). `parkour_local_min.sdf` also ended with the planner dead (exit -2), not confirmed as a segfault. Details: [quadsdk_notes.md](quadsdk_notes.md#re-check-2026-11-22-global_body_planner-segfault).
+2. **Front-leg torque about 2x the 33.5 Nm limit on `step_25cm.sdf` and `step_30cm.sdf`** (67 and 46 warnings in a 45 s run, from `docs/quadsdk_notes.md`, an earlier run; not re-measured). NMPC still solves and the robot does not crash. Repro: `scripts/benchmark_gazebo.sh --controller nmpc --trials 1 --goal 5.0 --nmpc-world step_25cm.sdf`; the warning text and log file were not checked for this note, so search the run logs in `training/logs/run_logs/` for "torque".

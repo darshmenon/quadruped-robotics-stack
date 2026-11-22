@@ -123,3 +123,7 @@ Takeaways:
   `global_body_planner_node`'s path search to find what specifically
   segfaults — likely a null/out-of-range access when no traversable path
   exists near the goal.
+
+### Re-check 2026-11-22 (global_body_planner segfault)
+
+`gap_80cm.sdf` reproduced the `global_body_planner_node` segfault (exit code -11) at a quiet load average (4.35), and `parkour_local_min.sdf` ended with the planner dying as well (exit code -2, shut down with the launch). So the crash is not only the memory pressure of the earlier back-to-back runs. The log shows it dies right after `valid and shorter or previous plan not valid`, i.e. just after the first plan is accepted in `GlobalBodyPlanner::callPlanner` (`global_body_planner.cpp`). A gdb run (`launch-prefix:="gdb -batch -ex run -ex bt -ex quit --args"` on the planner) ran at load 25, finished without a SIGSEGV and gave no backtrace. The cause is not confirmed; it is suspected to be `GBPL::postProcessPath` in `gbpl.cpp`, and no fix has been verified in Gazebo yet.

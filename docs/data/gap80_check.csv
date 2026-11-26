@@ -1,0 +1,2 @@
+controller,trial,reached,fell,time_s,dist_m,mean_speed,max_lateral_m,final_lateral_m,heading_change_deg,min_z,path_m,sim_s,wall_s
+nmpc,1,0,0,nan,0.0,0.0,0.0,0.0,0.0,0.31,0.0,40.0,88

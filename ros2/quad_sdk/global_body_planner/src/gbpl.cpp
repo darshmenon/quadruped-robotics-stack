@@ -41,7 +41,10 @@ std::vector<Action> GBPL::getActionSequenceReverse(PlannerClass& T,
   // Assumes that actions are synched with the states at which they are executed
   // (opposite of the definition in RRT)
   std::vector<Action> action_sequence;
-  for (int i = 0; i < path.size() - 1; ++i) {
+  if (path.empty()) {
+    return action_sequence;
+  }
+  for (int i = 0; i + 1 < static_cast<int>(path.size()); ++i) {
     action_sequence.push_back(T.getAction(path.at(i)));
   }
   return action_sequence;
@@ -52,13 +55,19 @@ void GBPL::postProcessPath(std::vector<State>& state_sequence,
                            const PlannerConfig& planner_config) {
   auto t_start = std::chrono::steady_clock::now();
 
+  // A failed search can hand in an empty sequence. back()/front() on it
+  // is the segfault seen on gap and local-min worlds.
+  if (state_sequence.empty()) {
+    action_sequence.clear();
+    return;
+  }
+
   // Initialize first and last states
   State s_goal = state_sequence.back();
   State s = state_sequence.front();
   State s_next;
   State dummy;
-  Action a_new;
-  Action a_next;
+  Action a_next{};
 
   // Initialize state and action sequences
   std::vector<State> new_state_sequence;
@@ -72,32 +81,35 @@ void GBPL::postProcessPath(std::vector<State>& state_sequence,
     std::vector<State> state_sequence_copy = state_sequence;
     std::vector<Action> action_sequence_copy = action_sequence;
 
-    // Start at the back of the sequence
+    // Start at the back of the sequence. N states have N-1 actions, and a
+    // gap or local minimum makes every shortcut fail, so both vectors are
+    // walked all the way down. pop_back()/back() on the empty one is the
+    // crash after the first plan is accepted.
     s_next = state_sequence_copy.back();
-    a_next = action_sequence_copy.back();
-    State old_state;
-    Action old_action;
+    if (!action_sequence_copy.empty()) {
+      a_next = action_sequence_copy.back();
+    }
+    State old_state = s;
+    Action old_action{};
     StateActionResult result;
+    bool reached = false;
 
-    // Try to connect to the last state in the sequence
-    // if unsuccesful remove the back and try again until successful or no
-    // states left
-    while ((attemptConnect(s, s_next, result, planner_config, FORWARD) !=
-            REACHED) &&
-           (s != s_next)) {
+    while (s != s_next) {
+      if (attemptConnect(s, s_next, result, planner_config, FORWARD) ==
+          REACHED) {
+        reached = true;
+        break;
+      }
       old_state = s_next;
       old_action = a_next;
+      if (state_sequence_copy.size() <= 1) {
+        break;
+      }
       state_sequence_copy.pop_back();
-      action_sequence_copy.pop_back();
+      if (!action_sequence_copy.empty()) {
+        action_sequence_copy.pop_back();
+      }
       s_next = state_sequence_copy.back();
-      // state_sequence_copy always has one more element than
-      // action_sequence_copy (N states, N-1 edges), so the pop above can
-      // leave action_sequence_copy empty (this happens whenever the direct
-      // connect keeps failing all the way to the second state, e.g. across
-      // a gap/local-minimum with no easy straight-line path). a_next is
-      // dead in that case -- the loop is about to exit on s == s_next and
-      // the caller falls back to old_state/old_action -- so just skip the
-      // read instead of calling back() on an empty vector.
       if (!action_sequence_copy.empty()) {
         a_next = action_sequence_copy.back();
       }
@@ -105,13 +117,13 @@ void GBPL::postProcessPath(std::vector<State>& state_sequence,
 
     // If a new state was found add it to the sequence, otherwise add the next
     // state in the original sequence
-    if (s != s_next) {
+    if (reached) {
       new_state_sequence.push_back(s_next);
       new_action_sequence.push_back(result.a_new);
       path_length_ += result.length;
       s = s_next;
 
-    } else {
+    } else if (!(old_state == s)) {
       new_state_sequence.push_back(old_state);
       new_action_sequence.push_back(old_action);
 
@@ -119,6 +131,9 @@ void GBPL::postProcessPath(std::vector<State>& state_sequence,
       isValidStateActionPair(old_state, old_action, result, planner_config);
       path_length_ += result.length;
       s = old_state;
+    } else {
+      // No shortcut and no unused edge. Stop instead of looping on the same state.
+      break;
     }
   }
 
@@ -144,7 +159,9 @@ void GBPL::extractPath(PlannerClass& Ta, PlannerClass& Tb,
   for (int i = 0; i < action_sequence_b.size(); i++) {
     flipDirection(action_sequence_b[i]);
   }
-  path_b.erase(path_b.begin());
+  if (!path_b.empty()) {
+    path_b.erase(path_b.begin());
+  }
 
   state_sequence = getStateSequence(Ta, path_a);
   std::vector<State> state_sequence_b = getStateSequence(Tb, path_b);
@@ -341,7 +358,9 @@ int GBPL::findPlan(
   for (Action a : action_sequence) {
     path_duration_ += (a.t_s_leap + a.t_f + a.t_s_land);
   }
-  dist_to_goal_ = poseDistance(s_goal, state_sequence.back());
+  dist_to_goal_ = state_sequence.empty()
+                      ? std::numeric_limits<double>::infinity()
+                      : poseDistance(s_goal, state_sequence.back());
 
   return result;
 }

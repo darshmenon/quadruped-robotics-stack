@@ -205,7 +205,7 @@ SOFT_LIMIT_WEIGHT = 2.0     # soft DoF-limit proximity (unitree_rl_gym style)
 TROT_CALF_LIFT = 0.45       # rad of extra calf flexion at mid-swing (lifts the foot)
 TROT_THIGH_SWING = -0.3     # rad of thigh swing through the stride (negative = forward; probed: +0.15 drifts backward)
 GAIT_SWING_FORCE_WEIGHT = 0.5  # penalty on foot contact force while that foot should be in swing
-CMD_FLOOR_VX = 0.25         # early-curriculum minimum forward command, fades out by level 0.5
+CMD_FLOOR_VX = 0.1          # early-curriculum minimum forward command, fades out by level 0.5
 CMD_MAX_VX_MIN = 0.45       # early-curriculum max forward command (was 0.15 at level 0)
 PROGRESS_WEIGHT = 3.0       # reward per m/s of forward speed along the command
 YAW_PROGRESS_WEIGHT = 3.0   # wide-cmd only: reward per rad/s of yaw rate in the commanded direction (dense; the exp kernel gave no gradient far from target)
@@ -618,7 +618,7 @@ class Go2MujocoEnv(gym.Env):
         r_prog = 0.0
         if cmd_speed > 0.1:
             along = float(lin_vel[0] * self.cmd[0] + lin_vel[1] * self.cmd[1]) / cmd_speed
-            r_prog = PROGRESS_WEIGHT * float(np.clip(along, -0.2, 1.5 * cmd_speed))
+            r_prog = PROGRESS_WEIGHT * float(np.clip(along, -0.2, 1.1 * cmd_speed))
 
         # ALIVE_BONUS was meant to stop early termination from ever being a
         # shortcut to dodge penalties, but it's unconditional -- a policy

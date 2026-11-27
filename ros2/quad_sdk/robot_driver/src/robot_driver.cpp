@@ -914,8 +914,9 @@ bool RobotDriver::updateControl() {
         RCLCPP_WARN(
             node_->get_logger(),
             "Leg %d motor %d: total effort = %5.3f Nm exceeds threshold of "
-            "%5.3f Nm",
-            i, j, effort, torque_limits_[j]);
+            "%5.3f Nm (ff %5.3f, kp term %5.3f, kd term %5.3f, fb ratio %4.2f)",
+            i, j, effort, torque_limits_[j], cmd.torque_ff, pos_component,
+            vel_component, fb_ratio);
         effort =
             std::min(std::max(effort, -torque_limits_[j]), torque_limits_[j]);
       }

@@ -53,7 +53,9 @@ class GlobalBodyPlan {
    * @brief Get the duration of the plan in seconds.
    * @return Plan duration
    */
-  inline double getDuration() const { return t_plan_.back(); }
+  inline double getDuration() const {
+    return t_plan_.empty() ? 0.0 : t_plan_.back();
+  }
 
   /**
    * @brief Get the length of the plan in meters.

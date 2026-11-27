@@ -366,9 +366,11 @@ State interpStateActionPair(const State& s_in, const Action& a, double t0,
   for (double t = 0; t < t_s; t += dt) {
     interp_t.push_back(t0 + t);
     State s_next = applyStance(s, a, t, phase, planner_config);
-    if (!interp_reduced_plan.empty()) {
+    if (!interp_reduced_plan.empty() && !interp_length.empty()) {
       interp_length.push_back(interp_length.back() +
                               poseDistance(s_next, interp_reduced_plan.back()));
+    } else {
+      interp_length.push_back(0.0);
     }
     interp_reduced_plan.push_back(s_next);
     interp_GRF.push_back(getGRF(a, t, phase, planner_config));
@@ -383,8 +385,12 @@ State interpStateActionPair(const State& s_in, const Action& a, double t0,
   for (double t = 0; t < t_f; t += dt) {
     interp_t.push_back(t0 + t_s + t);
     State s_next = applyFlight(s_takeoff, t, planner_config);
-    interp_length.push_back(interp_length.back() +
-                            poseDistance(s_next, interp_reduced_plan.back()));
+    if (!interp_reduced_plan.empty() && !interp_length.empty()) {
+      interp_length.push_back(interp_length.back() +
+                              poseDistance(s_next, interp_reduced_plan.back()));
+    } else {
+      interp_length.push_back(0.0);
+    }
     interp_reduced_plan.push_back(s_next);
     GRF grf = {0, 0, 0};
     interp_GRF.push_back(grf);
@@ -401,10 +407,12 @@ State interpStateActionPair(const State& s_in, const Action& a, double t0,
     for (double t = 0; t < t_s_land; t += dt) {
       interp_t.push_back(t0 + t_s + t_f + t);
       State s_next = applyStance(s_land, a, t, phase, planner_config);
-      if (!interp_reduced_plan.empty()) {
+      if (!interp_reduced_plan.empty() && !interp_length.empty()) {
         interp_length.push_back(
             interp_length.back() +
             poseDistance(s_next, interp_reduced_plan.back()));
+      } else {
+        interp_length.push_back(0.0);
       }
       interp_reduced_plan.push_back(s_next);
       interp_GRF.push_back(getGRF(a, t, phase, planner_config));
@@ -426,6 +434,11 @@ void getInterpPlan(FullState start_state,
                    const PlannerConfig& planner_config) {
   std::vector<State> interp_reduced_plan;
 
+  // An empty plan or one with more actions than states cannot be interpolated.
+  if (state_sequence.empty() || action_sequence.size() >= state_sequence.size()) {
+    return;
+  }
+
   // Loop through state action pairs, interp each and add to the path
   for (int i = 0; i < action_sequence.size(); i++) {
     interpStateActionPair(state_sequence[i], action_sequence[i], t0, dt,
@@ -438,11 +451,14 @@ void getInterpPlan(FullState start_state,
   // Add the final state in case it was missed by interp (GRF is undefined
   // here so just copy the last element)
   interp_t.push_back(t0);
+  const double last_len = interp_length.empty() ? 0.0 : interp_length.back();
   interp_length.push_back(
-      interp_length.back() +
-      poseDistance(state_sequence.back(), interp_reduced_plan.back()));
+      interp_reduced_plan.empty()
+          ? last_len
+          : last_len + poseDistance(state_sequence.back(),
+                                    interp_reduced_plan.back()));
   interp_reduced_plan.push_back(state_sequence.back());
-  interp_GRF.push_back(interp_GRF.back());
+  interp_GRF.push_back(interp_GRF.empty() ? GRF::Zero() : interp_GRF.back());
   interp_primitive_id.push_back(LEAP_STANCE);
 
   // Lift from reduced into full body plan
@@ -1149,7 +1165,9 @@ void publishStateActionPair(
 
   // Add the exact last state so the visualization is continuous
   interp_state_action.push_back(applyAction(s, a, planner_config));
-  interp_primitive_id.push_back(interp_primitive_id.back());
+  interp_primitive_id.push_back(interp_primitive_id.empty()
+                                    ? LEAP_STANCE
+                                    : interp_primitive_id.back());
 
   // Loop through the interpolated state action pair and add points to the line
   // strip

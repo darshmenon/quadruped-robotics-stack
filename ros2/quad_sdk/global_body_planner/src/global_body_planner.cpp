@@ -236,10 +236,10 @@ bool GlobalBodyPlanner::callPlanner() {
   State goal_state = fullStateToState(goal_state_);
 
   // Initialize statistics variables
-  double plan_time, path_length, path_duration, total_solve_time,
-      total_vertices_generated, total_path_length, total_path_duration,
-      dist_to_goal;
-  int vertices_generated;
+  double plan_time = 0, path_length = 0, path_duration = 0, total_solve_time = 0,
+      total_vertices_generated = 0, total_path_length = 0, total_path_duration = 0,
+      dist_to_goal = 0;
+  int vertices_generated = 0;
 
   // RRT-Connect planner kept as a class member so that warm-started CBS
   // service calls reuse the trees from the previous solve.
@@ -319,7 +319,8 @@ bool GlobalBodyPlanner::callPlanner() {
 
     } else if ((plan_status == VALID_PARTIAL) &&
                (current_plan_.getStatus() == UNSOLVED ||
-                (poseDistance(state_sequence.back(), goal_state) <
+                (!state_sequence.empty() &&
+                 poseDistance(state_sequence.back(), goal_state) <
                  current_plan_.getGoalDistance()))) {
       RCLCPP_INFO(node_->get_logger(),
                   "partially valid and closer to the goal");

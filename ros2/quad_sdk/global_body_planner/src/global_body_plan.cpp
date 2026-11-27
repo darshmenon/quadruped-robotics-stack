@@ -1,5 +1,7 @@
 #include "global_body_planner/global_body_plan.hpp"
 
+#include <algorithm>
+
 GlobalBodyPlan::GlobalBodyPlan() {
   length_plan_.push_back(0);
   plan_status_ = UNSOLVED;
@@ -44,6 +46,12 @@ void GlobalBodyPlan::loadPlanData(int plan_status, FullState& start_state,
 
   std::vector<State> interp_reduced_plan;
 
+  // Every action needs a matching state before the loop indexes both.
+  if (state_sequence.empty() || action_sequence.size() > state_sequence.size()) {
+    goal_distance_ = dist_to_goal;
+    return;
+  }
+
   // Loop through state action pairs, interp each and add to the path
   for (int i = 0; i < action_sequence.size(); i++) {
     interpStateActionPair(state_sequence[i], action_sequence[i], t0, dt,
@@ -52,6 +60,14 @@ void GlobalBodyPlan::loadPlanData(int plan_status, FullState& start_state,
 
     t0 += (action_sequence[i].t_s_leap + action_sequence[i].t_f +
            action_sequence[i].t_s_land);
+  }
+
+  // Nothing to load: an empty state or action sequence leaves no interpolated
+  // states, and the .back() calls below would read past an empty vector.
+  if (state_sequence.empty() || interp_reduced_plan.empty() ||
+      grf_plan_.empty()) {
+    goal_distance_ = dist_to_goal;
+    return;
   }
 
   // Add the final state in case it was missed by interp (GRF is undefined
@@ -112,13 +128,18 @@ void GlobalBodyPlan::convertToMsg(
   if (getSize() <= 0) return;
 
   // Loop through the interpolated body plan and add to message
-  for (int i = 0; i < body_plan_.size(); ++i) {
+  const size_t n_body = std::min(
+      body_plan_.size(), std::min(t_plan_.size(), std::min(grf_plan_.size(), primitive_id_plan_.size())));
+  for (size_t i = 0; i < n_body; ++i) {
     addStateAndGRFToMsg(t_plan_[i], i, body_plan_[i], grf_plan_[i],
                         primitive_id_plan_[i], robot_plan_msg);
   }
 
   // Loop through the discrete states and add to message
-  for (int i = 0; i < state_sequence_.size(); i++) {
+  // grf_plan_ and primitive_id_plan_ can be shorter than state_sequence_
+  const size_t n_discrete = std::min(
+      state_sequence_.size(), std::min(grf_plan_.size(), primitive_id_plan_.size()));
+  for (size_t i = 0; i < n_discrete; i++) {
     // Discrete states don't need roll, yaw, or timing data, set to zero
     FullState full_discrete_state =
         stateToFullState(state_sequence_[i], 0, 0, 0, 0, 0, 0);

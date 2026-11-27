@@ -1,0 +1,8 @@
+# Stock KISS-ICP on the Go2 sim cloud. Lidar only: no IMU, no extrinsics.
+# The gpu_lidar scan is one instant (xyz only), so deskew stays off.
+# max_range is the sensor limit used by RKO-LIO (30 m). Voxel size is left
+# unset so KISS-ICP keeps its own default, max_range / 100 = 0.3 m.
+data:
+  max_range: 30.0
+  min_range: 0.4
+  deskew: false

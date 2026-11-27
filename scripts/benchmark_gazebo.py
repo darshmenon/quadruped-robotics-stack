@@ -27,7 +27,94 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 FIELDS = ["controller", "trial", "reached", "fell", "time_s", "dist_m", "mean_speed", "max_lateral_m",
-          "final_lateral_m", "heading_change_deg", "min_z", "path_m", "sim_s", "wall_s"]
+          "final_lateral_m", "heading_change_deg", "min_z", "path_m", "sim_s", "wall_s",
+          "load_start", "load_end", "load_max", "mem_avail_mb", "tag",
+          "world", "ground_z"]
+LOAD_LIMIT = 8.0  # docs/BENCHMARK_PROTOCOL.md: a run with load_max at or above this is tagged [LOAD>8]
+
+
+# World-frame height of the start surface. big_flat's mesh slab puts it at +0.1 m; worlds not listed are assumed 0.
+GROUND_Z = {"big_flat.sdf": 0.1}
+
+
+def world_info(ctl, args):
+    world = Path(args.nmpc_world if ctl == "nmpc" else args.rl_world).name
+    ground = GROUND_Z.get(world, 0.0) if args.ground_z is None else args.ground_z
+    return world, ground
+
+
+def has_fallen(z, ground_z, fall_z):
+    return z - ground_z < fall_z
+
+
+def mem_avail_mb():
+    try:
+        for line in open("/proc/meminfo"):
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+    except OSError:
+        pass
+    return ""
+
+
+def other_sims_running():
+    """True if a gz sim or ros2 launch from some other process is already running (checked before this trial starts)."""
+    for pid in filter(str.isdigit, os.listdir("/proc")):
+        if int(pid) == os.getpid():
+            continue
+        try:
+            cmd = open(f"/proc/{pid}/cmdline").read().replace("\0", " ")
+        except OSError:
+            continue
+        if "gz sim" in cmd or "ros2 launch" in cmd:
+            return True
+    return False
+
+
+def make_tag(load_max, shared):
+    tags = []
+    if load_max >= LOAD_LIMIT:
+        tags.append("[LOAD>8]")
+    if shared:
+        tags.append("[SHARED]")
+    return " ".join(tags)
+
+
+class LoadTrace:
+    """1-minute load average at trial start and end, and its maximum over the trial (sampled every `period` s)."""
+
+    def __init__(self, period=5.0):
+        self.period, self.max, self.start, self.end = period, 0.0, None, None
+        self.mem = mem_avail_mb()
+        self.shared = other_sims_running()
+        self._stop = threading.Event()
+        self._t = None
+
+    def _sample(self):
+        v = os.getloadavg()[0]
+        self.max = max(self.max, v)
+        return v
+
+    def begin(self):
+        self.start = self._sample()
+        self._t = threading.Thread(target=self._loop, daemon=True)
+        self._t.start()
+
+    def _loop(self):
+        while not self._stop.wait(self.period):
+            self._sample()
+
+    def finish(self):
+        self._stop.set()
+        self.end = self._sample()
+
+    def columns(self):
+        if self.start is None:
+            return {}
+        if self.end is None:
+            self.finish()
+        return dict(load_start=round(self.start, 2), load_end=round(self.end, 2), load_max=round(self.max, 2),
+                    mem_avail_mb=self.mem, tag=make_tag(self.max, self.shared))
 
 
 def stop(p):
@@ -51,6 +138,10 @@ def kill_partition(tag):
 
 
 def run_trial(ctl, trial, args):
+    if ctl == "champ":
+        raise NotImplementedError(
+            "CHAMP backend is not implemented: it needs a launcher (launch/champ_go2_gazebo.launch.py), a ground-truth "
+            "pose source and a /cmd_vel drive, and those can only be tested with a sim.")
     import rclpy
     from geometry_msgs.msg import Twist
     from nav_msgs.msg import Odometry
@@ -159,7 +250,7 @@ def run_trial(ctl, trial, args):
             if x - x0 >= args.goal - args.tol:
                 row["reached"] = 1
                 break
-            if z < args.fall_z:
+            if has_fallen(z, world_info(ctl, args)[1], args.fall_z):
                 row["fell"] = 1
                 break
             if sim > args.timeout or time.time() - wall_start > args.timeout * 15:
@@ -191,7 +282,7 @@ def run_trial(ctl, trial, args):
 def summarize(rows):
     out = ["| Controller | Trials | Reached goal | Falls | Time to goal (s) | Mean speed (m/s) | Max lateral drift (m) | Final heading change (deg) | Path / straight |",
            "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
-    for ctl in ("nmpc", "rl"):
+    for ctl in ("nmpc", "rl", "champ"):
         r = [x for x in rows if x["controller"] == ctl]
         if not r:
             continue
@@ -200,8 +291,9 @@ def summarize(rows):
         def mean(key, src=r):
             v = [float(x[key]) for x in src if x.get(key) not in (None, "") and float(x[key]) == float(x[key])]
             return f"{statistics.mean(v):.2f}" if v else "-"
+        label = dict(nmpc="Quad-SDK NMPC", rl="RL walker (lat2)", champ="CHAMP")[ctl]
         eff = [float(x["path_m"]) / max(float(x["dist_m"]), 1e-6) for x in r if float(x["dist_m"]) > 0.5]
-        out.append(f"| {'Quad-SDK NMPC' if ctl == 'nmpc' else 'RL walker (lat2)'} | {len(r)} | {len(ok)}/{len(r)} | "
+        out.append(f"| {{label}} | {len(r)} | {len(ok)}/{len(r)} | "
                    f"{sum(int(x['fell']) for x in r)}/{len(r)} | {mean('time_s', ok)} | {mean('mean_speed', ok or r)} | "
                    f"{mean('max_lateral_m')} | {mean('heading_change_deg')} | {statistics.mean(eff):.2f} |" if eff else
                    f"| {ctl} | {len(r)} | {len(ok)}/{len(r)} | - | - | - | - | - | - |")
@@ -210,12 +302,14 @@ def summarize(rows):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--controller", choices=["nmpc", "rl", "both"], default="both")
+    ap.add_argument("--controller", choices=["nmpc", "rl", "champ", "both"], default="both")
     ap.add_argument("--trials", type=int, default=3)
     ap.add_argument("--goal", type=float, default=5.0, help="forward distance to walk (m)")
     ap.add_argument("--tol", type=float, default=0.25, help="goal reached within this distance (m)")
     ap.add_argument("--timeout", type=float, default=60.0, help="sim seconds allowed per trial")
-    ap.add_argument("--fall-z", type=float, default=0.12, help="base height below which the robot counts as fallen")
+    ap.add_argument("--fall-z", type=float, default=0.12, help="base height above the ground below which the robot counts as fallen")
+    ap.add_argument("--ground-z", type=float, default=None,
+                    help="world z of the ground; default 0.1 for big_flat.sdf, 0 for other worlds")
     ap.add_argument("--boot-wait", type=float, default=180.0)
     ap.add_argument("--stand-wait", type=float, default=25.0, help="RL: wall seconds for the stack to come up and stand")
     ap.add_argument("--model", default=str(REPO / "training/pretrained/go2_walk_lat2/go2_flat_walk.zip"))
@@ -228,17 +322,32 @@ def main():
     ap.add_argument("--md", default=None, help="also write the summary table to this file")
     args = ap.parse_args()
 
+    if args.controller == "champ":
+        run_trial("champ", 0, args)  # raises NotImplementedError before anything is launched
     ctls = ["nmpc", "rl"] if args.controller == "both" else [args.controller]
     rows = []
     csv_path = Path(args.csv)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     new = not csv_path.exists()
+    if not new:
+        with open(csv_path, newline="") as f:
+            old = next(csv.reader(f), [])
+        if old != FIELDS:
+            sys.exit(f"{csv_path} has a different header (older schema without the load columns?). "
+                     "Pass --csv with a new file instead of appending to it.")
     for ctl in ctls:
         for k in range(1, args.trials + 1):
-            r = run_trial(ctl, k, args)
+            load = LoadTrace()
+            load.begin()
+            try:
+                r = run_trial(ctl, k, args)
+            finally:
+                load.finish()
             if r is None:
                 r = dict(controller=ctl, trial=k, reached=0, fell=0, time_s="", dist_m=0, mean_speed=0, max_lateral_m="",
                          final_lateral_m="", heading_change_deg="", min_z="", path_m=0, sim_s="", wall_s="")
+            r.update(load.columns())
+            r["world"], r["ground_z"] = world_info(ctl, args)
             rows.append(r)
             with open(csv_path, "a", newline="") as f:
                 w = csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore")

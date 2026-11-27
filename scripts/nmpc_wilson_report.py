@@ -12,6 +12,8 @@ import os
 
 D = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", "data")
 
+GROUND_Z, FALL_Z = 0.1, 0.12  # big_flat.sdf surface height and fall threshold above it
+
 
 def wilson(k, n, z=1.96):
     if n == 0:
@@ -36,6 +38,9 @@ def line(name, rows):
     lo, hi = wilson(reached, n)
     flo, fhi = wilson(falls, n)
     print(f"{name}: n={n} reached={reached} ({lo:.1f}-{hi:.1f}% Wilson 95%) falls={falls} ({max(flo, 0):.1f}-{fhi:.1f}%)")
+    low = sum(float(r["min_z"]) - GROUND_Z < FALL_Z for r in rows)
+    glo, ghi = wilson(low, n)
+    print(f"  ground-relative rule (would be flagged, unconfirmed): falls={low} ({max(glo, 0):.1f}-{ghi:.1f}%)")
 
 
 main = os.path.join(D, "gazebo_benchmark.csv")

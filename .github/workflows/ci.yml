@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install "numpy<2" mujoco==3.2.7 scipy pyyaml gymnasium stable-baselines3 opencv-python-headless pytest
+
+      - name: Run tests
+        run: |
+          python -m pytest -rs tests
+          python scripts/test_frontier_geometry.py

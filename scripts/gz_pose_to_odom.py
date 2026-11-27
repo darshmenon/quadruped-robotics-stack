@@ -64,6 +64,9 @@ class GazeboPoseOdom(Node):
             if pose.name == self.model:
                 with self._pose_lock:
                     self._latest_pose = {
+                        # time the pose was valid in the sim: stamping with the (later) timer tick made /odom
+                        # lag its own stamp by the delivery latency, ~55 ms against the IMU
+                        "stamp_ns": msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nsec,
                         "x": pose.position.x,
                         "y": pose.position.y,
                         "z": pose.position.z,
@@ -82,6 +85,11 @@ class GazeboPoseOdom(Node):
             return
 
         now = self.get_clock().now()
+        if pose.get("stamp_ns"):
+            from rclpy.time import Time
+            now = Time(nanoseconds=pose["stamp_ns"], clock_type=self.get_clock().clock_type)  # the pose's own sim time
+        if self.last_time is not None and now <= self.last_time:
+            return                                         # same pose message already published
         stamp = now.to_msg()
         odom = Odometry()
         odom.header.stamp = stamp

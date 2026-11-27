@@ -11,7 +11,7 @@ A ROS2 + Gazebo + MuJoCo workspace for simulating and walking quadruped robots, 
 
 **What works**
 - **RL locomotion:** PPO trained end to end in MuJoCo, no hand-written gait or IK. Also rough-terrain vision, fall recovery, asymmetric critic with a staged curriculum, and HL navigation. See [RL Policy Training](#rl-policy-training).
-- **Quad-SDK NMPC:** a real Go2 config plans a path, solves NMPC in ~20-30 ms and walks to a goal at ~0.7 m/s. See [Quad-SDK](#quad-sdk-nmpc-locomotion--go2-walks).
+- **Quad-SDK NMPC:** the Go2 config (real URDF/meshes, simulation only) plans a path, solves NMPC with a median cycle of about 20 ms (p95 about 67 ms on a lightly loaded machine), and walks a 5 m flat-ground goal at about 0.63 m/s in Gazebo. See [Quad-SDK](#quad-sdk-nmpc-locomotion--go2-walks) and [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 - **CHAMP:** kinematic gait engine for quick, dependency-light walking (generic reference robot, not wired to Go2's physics).
 - **SLAM & mapping:** 2D SLAM Toolbox and 3D LiDAR RTAB-Map with frontier exploration, on CHAMP and NMPC. See [SLAM & Autonomy](#slam--autonomy).
 - **Worlds:** stairs and ledges, indoor autonomy, arena, warehouse and moving obstacles, each one launch command.
@@ -32,7 +32,7 @@ A ROS2 + Gazebo + MuJoCo workspace for simulating and walking quadruped robots, 
 |---|---|
 | ![Go2 climbing four 5 cm steps in MuJoCo](docs/images/go2_mujoco_window_climb_h05.gif) | ![Go2 climbing four 3 cm steps in MuJoCo](docs/images/go2_mujoco_climb_h03.gif) |
 
-The 5 cm clip is the best of 3 live attempts and that policy is unreliable (a later re-evaluation fell every time). The 3 cm climber had 0% falls over 6 episodes (`python3 training/office_demo.py --steps --cam side --record out.mp4`). Details: [Walking](#walking-policies), [Step climbing](#step-climbing-in-progress).
+The 5 cm clip is the best of 3 live attempts; it was recorded with a different policy run than the checkpoint measured below, and an earlier note says a later re-evaluation of that policy fell every time. Measured in MuJoCo (simulation only, deterministic actions, `scripts/eval_climber_mujoco.py`, `docs/data/climber_eval.csv`): the 3 cm height-scan climber reached the top platform in 10 of 10 episodes (seeds 0-9) with 0 falls and 0 stalls. Demo command for the clip: `python3 training/office_demo.py --steps --cam side --record out.mp4`. Details: [Walking](#walking-policies), [Step climbing](#step-climbing-in-progress).
 
 ---
 
@@ -134,7 +134,7 @@ Full checklist: [docs/DEMOS.md](docs/DEMOS.md).
 | Native gz-sim (`training/launch/gazebo_rl.launch.py`) | RL policy or IK trot, direct `JointPositionController` | Working |
 | CHAMP, generic robot (`ros2/champ_config`) | Kinematic gait engine | Wired for CHAMP's generic reference robot only, not Go2 — `champ_gazebo` needs Gazebo Classic, this repo runs Gazebo Harmonic |
 | CHAMP, Go2 (`launch/champ_go2_gazebo.launch.py`) | Kinematic gait engine, driving the real Go2 URDF via a joint-trajectory adapter, native Gazebo Harmonic | **Working** — default backend for [SLAM & Autonomy](#slam--autonomy) |
-| **Quad-SDK** (`ros2/quad_sdk`) | NMPC + global/local planner | **Walking** — verified end-to-end |
+| **Quad-SDK** (`ros2/quad_sdk`) | NMPC + global/local planner | **Walking on flat ground** (10/10 reached a 5 m goal in simulation, [docs/BENCHMARKS.md](docs/BENCHMARKS.md)); terrain worlds are partial, with planner crashes on several ([docs/quadsdk_notes.md](docs/quadsdk_notes.md)) |
 
 Generic-robot CHAMP standalone: `ros2 launch ros2/champ_config/launch/gazebo.launch.py` + `ros2 launch champ_teleop teleop.launch.py` (doesn't fully launch end-to-end on this repo's Gazebo Harmonic setup, see the table above).
 
@@ -236,10 +236,10 @@ Same PPO + trot-prior recipe, retrained with domain randomisation so one policy 
 
 | Variant | Status |
 |---|---|
-| Blind, 0.03 m | ~3 of 4 steps on average; ~2 of 10 attempts clear all four |
-| Blind, 0.05 m | Collapsed into stalling before the steps |
-| Height-scan (18 points, `GO2_STAIRS_VISION=1`), 0.03 m | Solved: 0% falls, clears all four steps |
-| Height-scan, 0.05 m | Reaches the top in 18 of 30 episodes (60%); needs `GO2_NO_STAND_SUBSIDY=1` plus a larger stall penalty, otherwise it parks in front of the first step |
+| Blind, 0.03 m | ~3 of 4 steps on average; ~2 of 10 attempts clear all four (README figure, unmeasured here, no committed eval) |
+| Blind, 0.05 m | Collapsed into stalling before the steps (README figure, unmeasured here, no committed eval) |
+| Height-scan (18 points, `GO2_STAIRS_VISION=1`), 0.03 m | Measured: 10 of 10 episodes reach the top, 0 falls, 0 stalls, all four steps cleared (seeds 0-9, `docs/data/climber_eval.csv`) |
+| Height-scan, 0.05 m | Measured, `go2_stairs_h05.zip` with `vecnorm_final.pkl`: 8 of 10 episodes reach the top (seeds 0-9, 1 fall, 1 stall) and 26 of 30 (seeds 100-129, 1 fall, 3 stalls), `docs/data/climber_eval.csv`, `docs/data/climber_eval_5cm_30ep.csv`. The older "18 of 30 (60%)" figure has no committed eval and is superseded. With `vecnorm_h05.pkl` the same checkpoint reaches the top in only 3 of 10 (`docs/data/climber_eval_first_run_5cm_vecnorm_h05.csv`), so the observation normalisation file matters. Training needed `GO2_NO_STAND_SUBSIDY=1` plus a larger stall penalty, otherwise it parks in front of the first step |
 | Height-scan, 0.10 m+ | Not started |
 
 Weights: `training/pretrained/go2_climb_scan/`. The 5 cm clip is at the top of this README.
@@ -384,7 +384,7 @@ ros2 launch launch/slam3d_go2.launch.py headless:=true explore:=true
 |---|---|
 | `explore:=true` | `scripts/frontier_explorer_go2.py` grows a real occupancy grid and walks the robot toward frontier cells |
 | `track_obstacles:=true` | adds Kalman-tracked obstacle clustering |
-| `locomotion:=nmpc` | swaps CHAMP for the Quad-SDK backend (same lidar/RTAB-Map setup, also verified end-to-end) |
+| `locomotion:=nmpc` | swaps CHAMP for the Quad-SDK backend with the same lidar/RTAB-Map setup (demonstrated in a clip, unmeasured; no committed check of /map, /odom and TF) |
 
 RTAB-Map's frame is `base_footprint` (fixed below `base`, at ground level) rather than `base` itself, so the map/grid doesn't render floating above the feet. An RGB camera bridges into RViz as a picture-in-picture inset alongside the point cloud. The full indoor demo is `ros2 launch launch/indoor_autonomy_go2.launch.py`; checklist in [docs/DEMOS.md](docs/DEMOS.md), troubleshooting in [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 

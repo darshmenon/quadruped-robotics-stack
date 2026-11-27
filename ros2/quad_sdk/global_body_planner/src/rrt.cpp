@@ -1,5 +1,6 @@
 #include "global_body_planner/rrt.hpp"
 
+#include <algorithm>
 #include <ctime>
 // constructor
 RRT::RRT() {}
@@ -146,11 +147,19 @@ int RRT::attemptConnect(const State& s_existing, const State& s, double t_s,
                                t_action_start)) {
       return REACHED;
     } else {
-      if (attemptConnect(s_existing, result.s_new, result.t_new, result,
-                         planner_config, direction, t_action_start) == TRAPPED)
+      // The retry must make progress (a strictly shorter stance time) and the
+      // retry depth is bounded; otherwise a connect that keeps failing at the
+      // same time recurses until the stack overflows (seen on gap_80cm).
+      thread_local int connect_depth = 0;
+      const int kMaxConnectDepth = 200;
+      if (!(result.t_new < t_s) || connect_depth >= kMaxConnectDepth)
         return TRAPPED;
-      else
-        return ADVANCED;
+      ++connect_depth;
+      const int retry =
+          attemptConnect(s_existing, result.s_new, result.t_new, result,
+                         planner_config, direction, t_action_start);
+      --connect_depth;
+      return (retry == TRAPPED) ? TRAPPED : ADVANCED;
     }
   }
 
@@ -198,11 +207,22 @@ int RRT::extend(
 
 std::vector<int> RRT::pathFromStart(PlannerClass& T, int s) {
   std::vector<int> path;
+  if (s < 0) {
+    return path;
+  }
   path.push_back(s);
-  while (s != 0) {
+  // A valid predecessor chain reaches the root within one step per vertex.
+  // Stop on a cycle or a bad index instead of walking off the graph.
+  const int limit = std::max(T.getNumVertices(), 1);
+  int steps = 0;
+  while (s != 0 && steps < limit) {
     int s_pred = T.getPredecessor(s);
+    if (s_pred < 0 || s_pred == s) {
+      break;
+    }
     path.push_back(s_pred);
     s = s_pred;
+    ++steps;
   }
   std::reverse(path.begin(), path.end());
   return path;

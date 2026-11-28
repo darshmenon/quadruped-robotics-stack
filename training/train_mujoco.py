@@ -9,6 +9,7 @@ Usage:
 
 import argparse
 import glob
+import json
 import os
 import sys
 
@@ -21,7 +22,7 @@ sys.modules.setdefault("triton", None)
 
 import numpy as np
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize, sync_envs_normalization
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.utils import get_schedule_fn
@@ -30,6 +31,7 @@ from envs.go2_mujoco_env import Go2MujocoEnv
 from envs.obs_history import ObsHistoryWrapper
 from envs.privileged_obs_wrapper import PrivilegedObsWrapper
 from policies.asymmetric_mlp import AsymmetricActorCriticPolicy
+import tracking_check as tc
 
 LOG_DIR  = os.path.join(os.path.dirname(__file__), "logs", "mujoco")
 CKPT_DIR = os.path.join(LOG_DIR, "checkpoints")
@@ -135,6 +137,31 @@ class FreezeObsNormCallback(BaseCallback):
         return True
 
 
+class TrackingCheckCallback(BaseCallback):
+    """Once, at num_timesteps >= check_at, measures speed tracking at one command and flags a run that only stands
+    or keeps falling (reward alone does not show it). With stop=True a flagged run ends there and is saved."""
+
+    def __init__(self, check_at: int, env, cmd_vx: float, log_dir: str, stop: bool):
+        super().__init__()
+        self._check_at, self._env, self._cmd_vx = check_at, env, cmd_vx
+        self._path = os.path.join(log_dir, "tracking_check.json")
+        self._stop, self._done = stop, False
+
+    def _on_step(self) -> bool:
+        if self._done or self.num_timesteps < self._check_at:
+            return True
+        self._done = True
+        sync_envs_normalization(self.model.get_vec_normalize_env(), self._env)
+        row = tc.run(self._env, self.model, self._cmd_vx, 0.0, 4, 1000, 1000, 50)
+        row = {k: v.item() if hasattr(v, "item") else v for k, v in row.items()}
+        row.update(num_timesteps=self.num_timesteps, cmd=self._cmd_vx, verdict=tc.verdict(row, self._cmd_vx))
+        with open(self._path, "w") as f:
+            json.dump(row, f, indent=2)
+        print(f"Tracking check at {self.num_timesteps} steps: cmd={self._cmd_vx} vx={row.get('vx_mean')} "
+              f"falls={row['falls']}/{row['episodes']} verdict={row['verdict']}", flush=True)
+        return not (self._stop and row["verdict"] in ("stands", "falls"))
+
+
 # --------------------------------------------------------------------------- #
 # Env factory
 # --------------------------------------------------------------------------- #
@@ -217,6 +244,11 @@ def main():
                              "unset for the old always-updating behavior, e.g. early "
                              "in a fresh run when the state distribution is still "
                              "genuinely changing")
+    parser.add_argument("--track-check-at", type=int, default=None, metavar="STEPS",
+                        help="once past this total step count, check forward speed tracking at the --cmd "
+                             "forward speed and write tracking_check.json (see TrackingCheckCallback)")
+    parser.add_argument("--track-check-stop", action="store_true",
+                        help="with --track-check-at, end training if the policy only stands or keeps falling")
     args = parser.parse_args()
 
     log_dir = args.log_dir
@@ -250,6 +282,8 @@ def main():
           f"| curriculum_level={args.curriculum_level:.3f} "
           f"| gait={args.gait} | obs_history={args.obs_history} "
           f"| asymmetric={args.asymmetric} | legs_only={args.legs_only} | log={log_dir}")
+
+    tc.save_run_config([log_dir, ckpt_dir], vars(args))
 
     # ---- training envs with obs + reward normalisation ----
     vec_env = DummyVecEnv([
@@ -331,6 +365,11 @@ def main():
     ]
     if args.freeze_obs_at is not None:
         callbacks.append(FreezeObsNormCallback(args.freeze_obs_at))
+    check_env = None
+    if args.track_check_at is not None:
+        check_env = VecNormalize(DummyVecEnv([_make_eval]), norm_obs=True, norm_reward=False, training=False)
+        callbacks.append(TrackingCheckCallback(args.track_check_at, check_env, cmd[0], log_dir,
+                                               args.track_check_stop))
 
     if args.resume:
         norm_path = args.vecnorm
@@ -427,6 +466,8 @@ def main():
     print("Training done. Model saved to", log_dir)
     vec_env.close()
     eval_env.close()
+    if check_env is not None:
+        check_env.close()
 
 
 if __name__ == "__main__":

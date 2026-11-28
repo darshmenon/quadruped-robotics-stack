@@ -1,5 +1,9 @@
 # Go2 Sim-to-Real Debug Notes
 
+> Status: historical notes. This repo commits no hardware logs and its results are simulation only. Since 2026-11-28
+> `go2.yaml` has `motor_limits.torque: [23.7, 23.7, 45.43]` (Unitree's URDF effort limits); the Gazebo results in this
+> repo predate that change.
+
 Distilled from a debugging session on the Go2 + quad-sdk stack. Symptom: works in
 Gazebo, fails on hardware — robot falls behind the plan, legs don't cycle,
 NMPC eventually starts failing.

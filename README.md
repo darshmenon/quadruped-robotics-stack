@@ -10,15 +10,15 @@
 A ROS2 + Gazebo + MuJoCo workspace for simulating and walking quadruped robots, with three interchangeable locomotion backends (RL, CHAMP, Quad-SDK NMPC) and an RL training pipeline on top. One PPO policy trained in MuJoCo also runs in Gazebo; Gazebo vs Quad-SDK NMPC numbers are in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 **What works**
-- **RL locomotion:** PPO trained end to end in MuJoCo, no hand-written gait or IK. Also rough-terrain vision, fall recovery, asymmetric critic with a staged curriculum, and HL navigation. See [RL Policy Training](#rl-policy-training).
+- **RL locomotion:** PPO trained in MuJoCo (the walker is a residual on a gait-clock trot prior). Also fall recovery, an asymmetric critic with a staged curriculum, HL navigation, and a rough-terrain vision pipeline (evaluated once, no blind/sighted gap found). See [RL Policy Training](#rl-policy-training).
 - **Quad-SDK NMPC:** the Go2 config (real URDF/meshes, simulation only) plans a path, solves NMPC with a median cycle of about 20 ms (p95 about 67 ms on a lightly loaded machine), and walks a 5 m flat-ground goal at about 0.63 m/s in Gazebo. See [Quad-SDK](#quad-sdk-nmpc-locomotion--go2-walks) and [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
-- **CHAMP:** kinematic gait engine for quick, dependency-light walking (generic reference robot, not wired to Go2's physics).
-- **SLAM & mapping:** 2D SLAM Toolbox and 3D LiDAR RTAB-Map with frontier exploration, on CHAMP and NMPC. See [SLAM & Autonomy](#slam--autonomy).
+- **CHAMP:** kinematic gait engine for quick walking. The Go2 launch is the default SLAM backend; its gait is not tuned to Go2's physics. The standalone generic-robot setup does not run end to end on Gazebo Harmonic.
+- **SLAM & mapping:** 2D SLAM Toolbox and 3D LiDAR RTAB-Map with frontier exploration, on CHAMP. An NMPC option exists but is unmeasured, and its 2026-08-27 room-world run did not walk ([docs/BENCHMARKS.md](docs/BENCHMARKS.md)). See [SLAM & Autonomy](#slam--autonomy).
 - **Worlds:** stairs and ledges, indoor autonomy, arena, warehouse and moving obstacles, each one launch command.
 - **Weights:** local SB3 `.zip` checkpoints plus downloadable Isaac/rsl_rl/Genesis `.pt` files ([docs/PRETRAINED.md](docs/PRETRAINED.md)).
 - **Papers:** 14 PDFs in [docs/papers/](docs/papers/README.md).
 
-**Go2 is the only fully working robot** (real URDF and meshes, both backends). The other `urdf/*_config/` folders are CHAMP stubs from upstream examples that reference unvendored ROS1 `*_description` packages, so they don't spawn as-is.
+**Go2 is the only robot set up end to end** (real URDF and meshes, native gz-sim, CHAMP and Quad-SDK backends). The other `urdf/*_config/` folders are CHAMP stubs from upstream examples that reference unvendored ROS1 `*_description` packages, so they don't spawn as-is.
 
 **Walking (RL, `go2_walk_lat2`)**
 
@@ -171,7 +171,9 @@ Three backends via one helper script: `./scripts/train_policy.sh [backend] [opti
 
 ### MuJoCo backend (default)
 
-Domain randomization, curriculum learning, foot-contact obs, 8-term reward, VecNormalize, TensorBoard logging.
+Domain randomization, curriculum learning, foot-contact obs, multi-term reward, VecNormalize, TensorBoard logging.
+
+The MuJoCo scenes and the Quad-SDK config (`go2.yaml`) limit the leg motors to 23.7 / 23.7 / 45.43 Nm (hip, thigh, calf), the effort limits in Unitree's URDF. The Gazebo NMPC numbers and walker checkpoints in this repo were produced before this change (NMPC at 33.5 / 33.5 / 50 Nm, MuJoCo with no limit) and the NMPC runs have not been repeated. Nothing in this repo has been validated on a real robot.
 
 ```bash
 pip install -r requirements.txt
@@ -193,7 +195,7 @@ A residual policy on top of a gait-clock trot (`GO2_TROT_PRIOR=1`), trained on f
 
 ![Walking speed vs training steps, and speed-command tracking](docs/images/walk_progress.png)
 
-Right panel also shows the latest walker (`go2_walk_lat2`): it over-tracks above 0.3 m/s and barely moves at 0.1 m/s, 0% falls on flat ground for both (`docs/data/walk_tracking_lat2.csv`).
+Right panel also shows the latest walker (`go2_walk_lat2`): in `docs/data/walk_tracking_lat2.csv` it barely moves at 0.1 m/s and runs faster than commanded from 0.2 to 0.5 m/s, with 0% falls on flat ground (a 2026-11-28 rerun with only `GO2_TROT_PRIOR=1` set measured 0.32 m/s at the 0.1 command, so the low-speed figure is not reproduced; cause unknown) (`docs/data/walk_tracking_lat2.csv`).
 
 Fixed-difficulty evaluation (clean env, 20 s episodes, 0% falls at every command tried):
 
@@ -446,9 +448,9 @@ python3 intelligence/navigation/waypoint_navigator.py --ros-args \
 
 ## Roadmap
 
-1. ~~Fix `global_body_planner_node` segfault on hard terrain.~~ **Fixed.**
-2. ~~Retrain MuJoCo RL policy against reward-hack fix.~~ **Done for forward walking** — the trot-prior PPO policy walks at the commanded 0.30 m/s with 0% falls (see [Current walker](#current-walker-ppo--clocked-trot-prior)); turning and stopping are untrained.
-3. ~~Fix `/cmd_vel` walking on the native Gazebo backend.~~ **Fixed, verified in sim** — headless `training/launch/gazebo_rl.launch.py` responds to `/cmd_vel` (forward + turn) with visible motion; actual speed tracks well below commanded (~25% of 0.25 m/s over a short window), likely needs gait tuning.
+1. **`global_body_planner_node` crashes on hard terrain:** a recursion crash on `gap_80cm` has a fix (commit `a4960cb`); not yet verified with the Gazebo benchmark, and the other crashing worlds are not re-checked.
+2. ~~Retrain MuJoCo RL policy against reward-hack fix.~~ **Done for forward walking** — the trot-prior PPO policy walks at the commanded 0.30 m/s with 0% falls (see [Current walker](#baseline-walker-ppo--clocked-trot-prior-forward-only)); turning and stopping are untrained.
+3. **`/cmd_vel` walking on the native Gazebo backend:** headless `training/launch/gazebo_rl.launch.py` responds to forward and turn commands, but an earlier short check measured only about 25% of a 0.25 m/s command; likely needs gait tuning.
 4. ~~Evaluate multi-terrain RL pipeline.~~ **Evaluated — no meaningful blind/sighted gap found.**
 5. **Wire the manipulator arm into something that does work** — currently decorative only.
 6. ~~Fall-recovery env + arm-in-MuJoCo-RL + Gazebo reward fix.~~ **Done, need more training/verification.**

@@ -94,7 +94,7 @@ surfaces. Everything else has now actually been run (headless, `goal ≈ (1,
 |-------|--------|
 | `flat.sdf` / `big_flat.sdf` | Works |
 | `step_20cm.sdf` | Works (previously verified end-to-end with a walk to a distant goal) |
-| `step_25cm.sdf` | NMPC solves, no crash — but motor effort repeatedly hits ~2x the 33.5 Nm torque limit (67 warnings in a 45s run). Numerically fine, physically would trip overcurrent on real hardware. |
+| `step_25cm.sdf` | 2026-07-10: NMPC solved with no crash; motor effort repeatedly exceeded the then configured 33.5 Nm limit (now 23.7 Nm for hip and thigh, not re-run), up to about 2x (67 warnings in 45 s). A 2026-11-26 run was flagged as a fall, see [BENCHMARKS.md](BENCHMARKS.md). Hardware behaviour untested. |
 | `step_30cm.sdf` | Same pattern as `step_25cm.sdf` (46 torque-overload warnings), still no crash. |
 | `gap_80cm.sdf` | `global_body_planner_node` segfaults (exit code -11) |
 | `slope_20_hole.sdf` | `global_body_planner_node` segfaults |
@@ -125,8 +125,10 @@ Takeaways:
 
 ### Re-check 2026-11-22 (global_body_planner segfault)
 
+Update 2026-11-27: the `gap_80cm` crash was traced to unbounded recursion in `RRT::attemptConnect` and fixed in commit `a4960cb` (see [BENCHMARKS.md](BENCHMARKS.md)); the hypothesis below is kept as history.
+
 `gap_80cm.sdf` reproduced the `global_body_planner_node` segfault (exit code -11) at a quiet load average (4.35), and `parkour_local_min.sdf` ended with the planner dying as well (exit code -2, shut down with the launch). So the crash is not only the memory pressure of the earlier back-to-back runs. The log shows it dies right after `valid and shorter or previous plan not valid`, i.e. just after the first plan is accepted in `GlobalBodyPlanner::callPlanner` (`global_body_planner.cpp`). A gdb run (`launch-prefix:="gdb -batch -ex run -ex bt -ex quit --args"` on the planner) ran at load 25, finished without a SIGSEGV and gave no backtrace.
 
 Hypothesis, not confirmed: `GBPL::postProcessPath` (`gbpl.cpp`) reads `back()` or calls `pop_back()` on an empty vector. A path has N states and N-1 actions, and on a gap or local minimum every straight shortcut could fail, so the shortcut walk may pop both vectors empty. Bounds guards were written for this in `gbpl.cpp`, `rrt.cpp`, `planning_utils.cpp`, `global_body_planner.cpp` and `global_body_plan.cpp` (uncommitted). **Negative result, 2026-11-23:** with those guards built (installed binary newer than all five sources), `gap_80cm.sdf` still segfaulted, `global_body_planner_node` exit code -11 (`docs/data/gap80_check.csv`, `docs/overnight_logs/gap80_planner_lines.log`). So the guards do not fix this crash and the real fault site is still unknown. A backtrace has not been obtained (the earlier gdb run did not crash, and no core or apport report exists for the planner).
 
-The 25 cm and 30 cm step runs still command feedforward torque (joint not confirmed; the kept flat-world logs peak at 64.5 Nm on the hip) at about twice the 33.5 Nm limit. `robot_driver` already clamps the total effort it sends and logs the warning. Clamping the feedforward earlier would change the NMPC command, so that warning stays.
+The 25 cm and 30 cm step runs still command feedforward torque (joint not confirmed; the kept flat-world logs peak at 64.5 Nm on the hip) at about twice the then configured 33.5 Nm limit. `robot_driver` already clamps the total effort it sends and logs the warning. Clamping the feedforward earlier would change the NMPC command, so that warning stays.

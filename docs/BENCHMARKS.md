@@ -138,7 +138,7 @@ Metrics to report:
 | Backend | Flat world | Room world | Outdoor world | Rough world | Notes |
 |---|---|---|---|---|---|
 | CHAMP | Working baseline | Working (maps successfully; frontier nav struggles on 2 far corners) -- see Indoor Autonomy 2026-08-27 | Needs tracker verification | TBD | Native `/cmd_vel` backend. Not physics-tuned for Go2 (generic reference gait, see README) -- produced visible hopping on contact until the 2026-08-27 d_gain fix. |
-| Quad-SDK NMPC | Working baseline | Spawns/loads cleanly (2026-08-27 world-wiring fix) but local planner fails to solve continuously in this world -- robot never walks. Needs solver-level debugging. | Working baseline | TBD | Goal-driven backend, verified end-to-end on flat/outdoor terrain per README; the room-world failure above is new information, not previously covered. |
+| Quad-SDK NMPC | Working baseline | Spawns/loads cleanly (2026-08-27 world-wiring fix) but local planner fails to solve continuously in this world -- robot never walks. Needs solver-level debugging. | Not measured | TBD | Goal-driven backend. Flat-ground runs are measured above; the outdoor world has no committed measurement. |
 | MuJoCo RL | Working with stability issue | N/A | N/A | Needs longer sighted/blind run | Fastest training loop. |
 | Gazebo RL | Needs fresh training | TBD | TBD | TBD | Real ROS/Gazebo loop, slower but closer to deployment. |
 
@@ -152,7 +152,7 @@ Both are simulation-only findings in the vendored Quad-SDK (`ros2/quad_sdk`).
    grep "exit code" training/logs/run_logs/bench_nmpc_plan_<domain>.log   # domain is printed by the script
    ```
    A gdb attempt (planner under `launch-prefix`, load 25) finished without a crash and gave no backtrace, so it did not locate the fault. Suspected cause (hypothesis, unconfirmed): an empty-vector read in `GBPL::postProcessPath` (`gbpl.cpp`). **Negative result, 2026-11-23:** bounds guards in the planner sources (uncommitted) were built and `gap_80cm.sdf` still segfaulted (exit -11, `data/gap80_check.csv`), so the guards do not fix it and the fault site is still unknown. `parkour_local_min.sdf` also ended with the planner dead (exit -2), not confirmed as a segfault. Details: [quadsdk_notes.md](quadsdk_notes.md).
-2. **Front-leg torque about 2x the 33.5 Nm limit on `step_25cm.sdf` and `step_30cm.sdf`** (67 and 46 warnings in a 45 s run, from `docs/quadsdk_notes.md`, an earlier run; not re-measured). NMPC still solves and the robot does not crash. Repro: `scripts/benchmark_gazebo.sh --controller nmpc --trials 1 --goal 5.0 --nmpc-world step_25cm.sdf`; the warning text and log file were not checked for this note, so search the run logs in `training/logs/run_logs/` for "torque".
+2. **Torque warnings on `step_25cm.sdf` and `step_30cm.sdf`** against the 33.5 Nm limit `go2.yaml` had at the time (since 2026-11-28 it is 23.7 / 23.7 / 45.43 Nm, Unitree's URDF values; not re-run). An earlier run logged 67 and 46 warnings in 45 s with no crash (`docs/quadsdk_notes.md`; which legs was not confirmed). One `step_25cm.sdf` run on 2026-11-26 did not reach the goal and was flagged as a fall (minimum height 0.10 m, height rule weak on steps), with 423 warnings across all four legs; its log is local, not committed. `robot_driver` clamps the total effort. Repro: `scripts/benchmark_gazebo.sh --controller nmpc --trials 1 --goal 5.0 --nmpc-world step_25cm.sdf`, then search `training/logs/run_logs/bench_nmpc_gz_<domain>.log` for "exceeds threshold".
 
 ## NMPC fall counts: caveat (2026-11-26)
 
@@ -160,4 +160,4 @@ The fall counts for NMPC on this page used an absolute base height below 0.12 m,
 
 ## Planner crash on gap_80cm (2026-11-27)
 
-Reported by the session that fixed it, not re-run here: the `gap_80cm` exit -11 of `global_body_planner_node` was unbounded recursion in `RRT::attemptConnect` (`rrt.cpp`). It is fixed in the working tree (uncommitted) and the planner stayed alive for 40 s under AddressSanitizer. Not yet checked with `scripts/benchmark_gazebo.sh` in Gazebo, and the other crashing worlds in `docs/quadsdk_notes.md` are not re-checked.
+Reported by the session that fixed it, not re-run here: the `gap_80cm` exit -11 of `global_body_planner_node` was unbounded recursion in `RRT::attemptConnect` (`rrt.cpp`). It is fixed in commit `a4960cb` and the planner stayed alive for 40 s under AddressSanitizer. Not yet checked with `scripts/benchmark_gazebo.sh` in Gazebo, and the other crashing worlds in `docs/quadsdk_notes.md` are not re-checked.

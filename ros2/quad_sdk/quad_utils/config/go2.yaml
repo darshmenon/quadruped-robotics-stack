@@ -123,7 +123,7 @@
     body:
       frame: "body"
     motor_limits:
-      torque: [33.5, 33.5, 50.0]
+      torque: [23.7, 23.7, 45.43]  # Unitree go2_description URDF effort: abad, hip, knee
       speed: [30.0, 30.0, 20.06]
     leg_0: 
       joints:
